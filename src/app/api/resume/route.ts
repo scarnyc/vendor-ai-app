@@ -8,6 +8,7 @@ import { z } from 'zod';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
+export const maxDuration = 300;
 
 const ResumeBodySchema = z.object({
   case_id: z.string(),
