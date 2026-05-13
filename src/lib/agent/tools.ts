@@ -284,7 +284,13 @@ export function calculateTotalContractValue(
 /* ─── Tool 5: classify_data_sensitivity (deterministic rules) ───────────── */
 
 const RESTRICTED_PATTERNS = [
-  /\bcustomer\s+(personal|pii|email|name)/i,
+  // v0.10.2 Item 18: customer-PII demoted to CONFIDENTIAL — the eval dataset
+  // distinguishes `data:pii` (confidential / medium-risk) from
+  // `data:restricted_pii` (regulated PHI / financial / HRIS). Keeping
+  // customer-PII here over-promoted case_001-shaped intakes to high-risk and
+  // suppressed approve_with_followup. Employee PII + HRIS + credentials +
+  // financial-account + regulated remain restricted because they map to
+  // SOC2/PCI/HIPAA-adjacent obligations the policy treats categorically.
   /\bemployee\s+(personal|pii|compensation|comp|performance|email)/i,
   /\bauthentication\s+credentials?\b/i,
   /\bproduction\s+data\b/i,
@@ -295,6 +301,7 @@ const RESTRICTED_PATTERNS = [
 ];
 
 const CONFIDENTIAL_PATTERNS = [
+  /\bcustomer\s+(personal|pii|email|name)/i,
   /\bcrm\b/i,
   /\bopportunity\s+history/i,
   /\bsales\s+activity/i,
@@ -339,9 +346,9 @@ export function classifyDataSensitivity(description: string): DataSensitivityRes
 
   const rationale =
     cls === 'restricted'
-      ? 'Description contains references to customer/employee personal data, credentials, production, or HRIS systems → restricted per data_handling_policy.'
+      ? 'Description contains references to employee personal data, authentication credentials, production data, financial accounts, regulated systems, or HRIS → restricted per data_handling_policy.'
       : cls === 'confidential'
-        ? 'Description contains references to CRM, opportunity history, vendor pricing, or named-user analytics → confidential per data_handling_policy.'
+        ? 'Description contains references to customer personal data (PII), CRM, opportunity history, vendor pricing, or named-user analytics → confidential per data_handling_policy.'
         : cls === 'internal'
           ? 'Description references operational/internal data without personal or financial markers.'
           : 'No personal, confidential, or internal data signals detected.';

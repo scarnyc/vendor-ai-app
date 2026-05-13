@@ -18,24 +18,50 @@ export type PolicyDoc = z.infer<typeof PolicyDocSchema>;
 export const PolicyCitationSchema = z.object({
   policy_doc: PolicyDocSchema,
   section: z.string().min(1),
-  quote: z.string().min(1).max(200),
+  quote: z.string().min(1).max(500),
   verified: z.boolean().default(false),
 });
 export type PolicyCitation = z.infer<typeof PolicyCitationSchema>;
 
 export const PolicyFlagSchema = z.object({
-  severity: z.enum(['info', 'warn', 'block']),
-  issue: z.string().min(1),
-  recipient: z.enum([
-    'business_owner',
-    'procurement_manager',
-    'vp_finance',
-    'cfo',
-    'executive_sponsor',
-    'legal',
-    'security',
-  ]),
-  citations: z.array(PolicyCitationSchema).min(1),
+  severity: z
+    .enum(['info', 'warn', 'block'])
+    .describe(
+      'info = does NOT change which approvers route the case (paperwork only). ' +
+        'warn = changes routing (legal/security pulled in). ' +
+        'block = engagement cannot proceed. Match to the deterministic risk ' +
+        'math in the system prompt — block forces risk=high, warn forces ' +
+        'risk=medium, info stays low.'
+    ),
+  issue: z
+    .string()
+    .min(1)
+    .describe(
+      'One-sentence statement of the concern or follow-up. Specific and ' +
+        'actionable; avoid restating the policy doc.'
+    ),
+  recipient: z
+    .enum([
+      'business_owner',
+      'procurement_manager',
+      'vp_finance',
+      'cfo',
+      'executive_sponsor',
+      'legal',
+      'security',
+    ])
+    .describe(
+      'Who needs to act on this flag. Match to the required_approvers list ' +
+        'when possible — flags routing to legal/security should set severity=warn.'
+    ),
+  citations: z
+    .array(PolicyCitationSchema)
+    .min(1)
+    .describe(
+      'At least one policy citation per flag. Quote MUST appear verbatim in ' +
+        'the cited policy_doc — pre-extracted candidates are surfaced in the ' +
+        'user message; prefer those.'
+    ),
 });
 export type PolicyFlag = z.infer<typeof PolicyFlagSchema>;
 
@@ -195,6 +221,11 @@ export const DecisionPacketSchema = z.object({
   tools_called: z.array(ToolCallRecordSchema),
   human_decision: HumanDecisionSchema.nullable(),
   generated_at: z.string(),
+  // v0.10 Item 11: 2-3 sentence internal rationale from the LLM. Surfaced in
+  // logs + LangSmith traces; not rendered in the UI or vendor email. Optional
+  // because deterministic-only paths (assembleEscalationPacket, mock outputs)
+  // don't have an LLM-emitted rationale.
+  rationale: z.string().max(1200).optional(),
 });
 export type DecisionPacket = z.infer<typeof DecisionPacketSchema>;
 
@@ -227,5 +258,10 @@ export const AgentStateSchema = z.object({
   tools_called: z.array(ToolCallRecordSchema),
   human_decision: HumanDecisionSchema.nullable(),
   error: z.string().nullable(),
+  // v0.10 Item 9: heuristic top-K policy clauses per flag-trigger, written by
+  // the extract_candidate_clauses node and consumed by runLlmComposition's
+  // user-message payload. Keyed by FlagTrigger; values are up to 6 verbatim
+  // policy lines prefixed with their doc name.
+  candidate_clauses: z.record(z.string(), z.array(z.string())).nullable(),
 });
 export type AgentState = z.infer<typeof AgentStateSchema>;

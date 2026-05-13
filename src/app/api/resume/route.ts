@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { Command } from '@langchain/langgraph';
 import { graph } from '@/lib/agent/graph';
 import { HumanDecisionSchema } from '@/lib/agent/schemas';
+import { getProviderInfo } from '@/lib/agent/llm';
 import { CASE_IDS } from '@/lib/cases';
 import { z } from 'zod';
 
@@ -50,6 +51,7 @@ export async function POST(req: NextRequest) {
       state: snap.values,
       next: snap.next,
       interrupted: (snap.next?.length ?? 0) > 0,
+      provider: getProviderInfo(),
     });
   } catch (err) {
     const msg = err instanceof Error ? err.message : 'unknown error';

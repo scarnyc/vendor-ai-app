@@ -23,8 +23,6 @@ export interface Lens {
   recipients: RequiredApprover[];
   /** Operator (procurement) is the only lens that can act. */
   is_operator: boolean;
-  /** Sub-label shown in the rail, e.g. "operator" or "preview" */
-  sub: string;
 }
 
 export const LENSES: Lens[] = [
@@ -41,49 +39,42 @@ export const LENSES: Lens[] = [
       'security',
     ],
     is_operator: true,
-    sub: 'operator',
   },
   {
     id: 'business_owner',
     label: 'Business Owner',
     recipients: ['business_owner'],
     is_operator: false,
-    sub: 'preview',
   },
   {
     id: 'legal',
     label: 'Legal',
     recipients: ['legal'],
     is_operator: false,
-    sub: 'preview',
   },
   {
     id: 'security',
     label: 'Security',
     recipients: ['security'],
     is_operator: false,
-    sub: 'preview',
   },
   {
     id: 'vp_finance',
     label: 'VP Finance',
     recipients: ['vp_finance'],
     is_operator: false,
-    sub: 'preview',
   },
   {
     id: 'cfo',
     label: 'CFO',
     recipients: ['cfo'],
     is_operator: false,
-    sub: 'preview',
   },
   {
     id: 'executive',
     label: 'Executive',
     recipients: ['executive_sponsor'],
     is_operator: false,
-    sub: 'preview',
   },
 ];
 

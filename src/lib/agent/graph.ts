@@ -13,6 +13,7 @@ import {
   runDeterministicToolsNode,
   classifyDataSensitivityNode,
   determineRequiredApprovalsNode,
+  extractCandidateClausesNode,
   prepareDecisionPacketNode,
   validateCitationsNode,
   identifyMissingNode,
@@ -70,6 +71,9 @@ const StateAnnotation = Annotation.Root({
   tools_called: Annotation<ToolCallRecord[]>,
   human_decision: Annotation<HumanDecision | null>,
   error: Annotation<string | null>,
+  // v0.10 Item 9: heuristic top-K policy clauses per flag-trigger, populated
+  // by extract_candidate_clauses and consumed by runLlmComposition's user msg.
+  candidate_clauses: Annotation<Record<string, string[]> | null>,
 });
 
 export type AgentStateAnnotation = typeof StateAnnotation.State;
@@ -81,6 +85,7 @@ const builder = new StateGraph(StateAnnotation)
   .addNode('run_deterministic_tools', runDeterministicToolsNode)
   .addNode('classify_data_sensitivity', classifyDataSensitivityNode)
   .addNode('determine_required_approvals', determineRequiredApprovalsNode)
+  .addNode('extract_candidate_clauses', extractCandidateClausesNode)
   .addNode('prepare_decision_packet', prepareDecisionPacketNode)
   .addNode('validate_citations', validateCitationsNode)
   .addNode('identify_missing', identifyMissingNode)
@@ -102,7 +107,8 @@ builder.addConditionalEdges('parse_inputs', isPackageComplete, {
 builder.addEdge('normalize_facts', 'run_deterministic_tools');
 builder.addEdge('run_deterministic_tools', 'classify_data_sensitivity');
 builder.addEdge('classify_data_sensitivity', 'determine_required_approvals');
-builder.addEdge('determine_required_approvals', 'prepare_decision_packet');
+builder.addEdge('determine_required_approvals', 'extract_candidate_clauses');
+builder.addEdge('extract_candidate_clauses', 'prepare_decision_packet');
 builder.addEdge('prepare_decision_packet', 'validate_citations');
 builder.addEdge('validate_citations', 'human_approval');
 
@@ -144,5 +150,6 @@ export function seedState(caseId: string): AgentStateAnnotation {
     tools_called: [],
     human_decision: null,
     error: null,
+    candidate_clauses: null,
   };
 }
