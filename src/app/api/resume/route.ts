@@ -17,9 +17,9 @@ const ResumeBodySchema = z.object({
 /**
  * POST /api/resume
  *
- * Submits a HumanDecision into the human_approval interrupt. The three
- * verdicts (approved / rejected / escalated) all flow through emit_final
- * to END; the agent's run_status reflects the chosen path. The
+ * Submits a HumanDecision into the human_approval interrupt. The four
+ * verdicts (approved / rejected / escalated / follow_up) all flow through
+ * emit_final to END; the agent's run_status reflects the chosen path. The
  * edit-and-re-run loop-back is deferred (see PRODUCTIONIZATION.md).
  */
 export async function POST(req: NextRequest) {

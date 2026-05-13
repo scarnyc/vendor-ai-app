@@ -192,6 +192,25 @@ language the schema can't express), and ticket-severity vs.
 `policy_flags`-max disagreement (the draft ticket downgrades severity
 relative to the highest `policy_flag.severity`).
 
+## The Grey Area — why a 4th verdict (Pending Follow-up) earns its keep
+
+> The agent's `recommended_action` enum has four values: `approve | approve_with_followup | escalate | block`. The first two describe success states; the last two describe failure states. Mapping these onto a 3-state operator model (Approve / Reject / Escalate) forced `approve_with_followup` to fall into either Approve (premature — paperwork hasn't arrived) or Reject (overstated — vendor isn't "rejected", they're "pending"). Most case folders land in this grey area: SOC 2 Type II evidence is mid-cycle, the DPA is unsigned, the W-9 hasn't been refreshed. The vendor isn't bad — they're just incomplete.
+>
+> The 4th verdict (**Pending Follow-up**) is the operator's "send the email, wait for the artifact, then re-evaluate" state. It's the most-used button in the dataset (2 of 3 materialized cases) and the reason the draft vendor email exists in the first place — see next section. The label deliberately leads with "Pending" so the operator never confuses this with an approval; nothing has been approved until the vendor's paperwork is in.
+
+## Vendor Follow-up Email — generated but display deferred
+
+> The agent generates `draft_vendor_email.body` on every `approve_with_followup` case. It's a polished, vendor-facing message requesting the missing artifacts (SOC 2 Type II, executed DPA, etc.). The take-home UI does NOT currently render this field — the inline textarea was removed alongside the operator-edit affordance in a prior pass.
+>
+> **Why it's deferred, not deleted:** the operator's Pending Follow-up verdict is meaningless without an artifact attached to it. In production, clicking Pending Follow-up should:
+>
+> 1. Open the draft email in a panel below the operator buttons.
+> 2. Allow the operator to edit/append context before sending.
+> 3. POST to a transactional email service (Postmark / SES / SendGrid) addressed to the vendor's primary contact.
+> 4. Persist the sent message into the case audit trail.
+>
+> For the take-home, generation is proven; transport is deferred. The operator selecting Pending Follow-up logs the verdict + a placeholder note "follow-up email queued (transport stub)" — wireable in <2 hours of production work.
+
 ## What I'd build first
 
 If this prototype landed in a real codebase Monday morning, my week-1 priorities
