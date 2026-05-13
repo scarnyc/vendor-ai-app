@@ -2,7 +2,7 @@
   "name": "vendor-ai-app",
   "version": "0.1.0",
   "private": true,
-  "description": "Vendor onboarding triage agent — Procurement workbench (Accelerant take-home)",
+  "description": "Vendor onboarding triage agent — Procurement workbench prototype",
   "scripts": {
     "dev": "next dev",
     "build": "next build",

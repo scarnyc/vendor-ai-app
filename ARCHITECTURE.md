@@ -5,7 +5,7 @@
 A single Next.js 16 app deployed on Vercel. The frontend is a canvas-first
 workbench (React 19 + Tailwind 4) that talks to three REST endpoints under
 `/api/`. Those endpoints drive a LangGraph.js state machine — 14 nodes that
-mirror the take-home's PNG flow — and surface the agent's output as a structured
+mirror the spec's PNG flow — and surface the agent's output as a structured
 `DecisionPacket`. A human approval interrupt sits between packet assembly and
 the final emit; nothing leaves the agent without an operator click. The whole
 TypeScript stack is intentional: it collapses to one Vercel deploy and lets the
@@ -225,7 +225,7 @@ call appears in the LangSmith dashboard. Free observability for the reviewer.
 ## Fixture surfaces
 
 Two case-shaped fixture surfaces sit side by side and are intentionally
-hand-synced for the take-home. `src/lib/cases.ts` is a UI-only metadata
+hand-synced for the prototype. `src/lib/cases.ts` is a UI-only metadata
 fixture — `vendor_name`, `short_name`, `acv_short`, `one_liner` — consumed by
 the case-tab strip and canvas header so the operator can scan the queue
 without invoking the agent. It is *not* ground truth: the agent never reads

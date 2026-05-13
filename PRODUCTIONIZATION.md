@@ -200,7 +200,7 @@ relative to the highest `policy_flag.severity`).
 
 ## Vendor Follow-up Email — generated but display deferred
 
-> The agent generates `draft_vendor_email.body` on every `approve_with_followup` case. It's a polished, vendor-facing message requesting the missing artifacts (SOC 2 Type II, executed DPA, etc.). The take-home UI does NOT currently render this field — the inline textarea was removed alongside the operator-edit affordance in a prior pass.
+> The agent generates `draft_vendor_email.body` on every `approve_with_followup` case. It's a polished, vendor-facing message requesting the missing artifacts (SOC 2 Type II, executed DPA, etc.). The prototype UI does NOT currently render this field — the inline textarea was removed alongside the operator-edit affordance in a prior pass.
 >
 > **Why it's deferred, not deleted:** the operator's Pending Follow-up verdict is meaningless without an artifact attached to it. In production, clicking Pending Follow-up should:
 >
@@ -209,7 +209,7 @@ relative to the highest `policy_flag.severity`).
 > 3. POST to a transactional email service (Postmark / SES / SendGrid) addressed to the vendor's primary contact.
 > 4. Persist the sent message into the case audit trail.
 >
-> For the take-home, generation is proven; transport is deferred. The operator selecting Pending Follow-up logs the verdict + a placeholder note "follow-up email queued (transport stub)" — wireable in <2 hours of production work.
+> For the prototype, generation is proven; transport is deferred. The operator selecting Pending Follow-up logs the verdict + a placeholder note "follow-up email queued (transport stub)" — wireable in <2 hours of production work.
 
 ## What I'd build first
 
@@ -276,10 +276,10 @@ eval set in Phase 1.
 
 ## Deferred from the initial demo deploy
 
-The take-home demo URL ships as a single Vercel project on Pro tier — enough to
+The demo URL ships as a single Vercel project on Pro tier — enough to
 let an HM click through case_001/002/003 end-to-end without hitting the 10s
 Hobby function ceiling. The six items below are conscious omissions, each
-load-bearing in production but not in a 4–6 hour take-home judged on judgment
+load-bearing in production but not in a 4–6 hour prototype judged on judgment
 and architecture. Calling them out so the line between "demo trade-off" and
 "would absolutely ship this" is explicit.
 
@@ -291,10 +291,10 @@ and architecture. Calling them out so the line between "demo trade-off" and
    threads are explicitly OK to lose on Vercel cold start — every HM click
    re-runs the agent from scratch by design.
 3. **SSO / Okta auth.** Phase 2 per §"Phase 2 — Integrations." The demo URL is
-   intentionally unauthenticated — a take-home reviewer shouldn't have to log
+   intentionally unauthenticated — a prototype reviewer shouldn't have to log
    in. `human_decision.decided_by` is the literal string "operator" until SSO
    threads a real subject in.
-4. **Custom domain.** `*.vercel.app` is the correct domain for a take-home —
+4. **Custom domain.** `*.vercel.app` is the correct domain for a prototype —
    the URL is ephemeral, the work is what's being evaluated. Custom domains
    arrive with SSO and tenant routing in Phase 2.
 5. **LangSmith tracing on the initial deploy.** Phase 1 observability per §3.1.
@@ -302,6 +302,6 @@ and architecture. Calling them out so the line between "demo trade-off" and
    extra env var is a place the demo can silently break. Flip on via
    `LANGCHAIN_TRACING_V2=true` if HMs ask about observability mid-review.
 6. **GitHub Actions / CI wiring.** Vercel auto-runs `pnpm build` on every push
-   — that's the only CI a take-home demo needs. Real CI (eval bench as a
+   — that's the only CI a prototype demo needs. Real CI (eval bench as a
    regression gate per Phase 1, drift detection on `docs/*.md`) is Phase 1
    work, not deploy-day work.

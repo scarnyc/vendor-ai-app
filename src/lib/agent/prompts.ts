@@ -16,7 +16,7 @@ import type { AgentState } from './schemas';
 export async function buildSystemPrompt(state: AgentState): Promise<string> {
   const policies = await buildPolicyContext();
   const calibration = buildCalibrationFor(state);
-  return `You are the **Vendor AI Triage Agent**. You read a vendor onboarding case package, evaluate it against Accelerant's internal policies, and prepare a Decision Packet for a procurement owner to review.
+  return `You are the **Vendor AI Triage Agent**. You read a vendor onboarding case package, evaluate it against the buyer's internal policies, and prepare a Decision Packet for a procurement owner to review.
 
 # JSON OUTPUT DIRECTIVE (read this first)
 
