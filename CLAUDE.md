@@ -39,8 +39,7 @@ hard-line → component → control mapping.
 src/app/                 — Next.js App Router pages + api/copilotkit/route.ts
 src/components/          — Rail, CaseTabs, CanvasShell, PlanList,
                            ToolAuditCard, DecisionPacketCard,
-                           ConfirmationCard, CitationChip, PolicyDrawer,
-                           AmbientPromptPill (see DESIGN.md §5)
+                           ConfirmationCard, CitationChip, PolicyDrawer
 src/lib/agent/           — graph.ts, nodes.ts, tools.ts (the 8 PNG-named
                            tools), schemas.ts (Zod), policies.ts,
                            prompts.ts, llm.ts (provider switch)
@@ -79,15 +78,24 @@ names. Don't rename, don't merge, don't omit. Tool I/O contracts are in
   user-visible strings. Audit cards use `<dl>` label/value (see DESIGN.md
   §5.6 worked example).
 
-## Commands (will land as the build progresses)
+## Commands
 
 | Command | Purpose |
 |---|---|
 | `pnpm dev` | Local dev server with AIMock LLM (no API costs) |
-| `LLM_PROVIDER=openrouter pnpm dev` | Local dev hitting OpenRouter free models |
-| `pnpm test` | Unit + golden-case tests (3/3 cases produce policy-aligned verdicts) |
+| `envchain vendor-ai pnpm dev` | Local dev hitting Anthropic Sonnet 4.6 (default real LLM) |
+| `envchain vendor-ai bash -c 'LLM_PROVIDER=anthropic-only pnpm eval:dataset'` | 5-point eval bench across 3 materialized cases (target ≥14/15) |
+| `LLM_PROVIDER=deepseek pnpm dev` | Legacy DeepSeek path (with OpenRouter fallback) |
+| `pnpm typecheck` | `tsc --noEmit` clean — required before every commit |
 | `pnpm build && pnpm start` | Production build verification |
+| `node scripts/qa-packet-render.mjs` | Manual Playwright smoke for the Decision Packet render (run after each bench cycle; not in CI) |
 | `vercel deploy` | Push to Vercel (env vars set in dashboard) |
+
+**Secrets:** the Anthropic console API key lives in envchain namespace
+`vendor-ai` under `ANTHROPIC_API_KEY`. The OAuth token in
+`hermes-llm/ANTHROPIC_TOKEN` is NOT compatible with the LangChain SDK
+binding — use the console key. `envchain vendor-ai <cmd>` injects it
+for the duration of the wrapped command without exposing it to history.
 
 ## Stop-chain before commits
 

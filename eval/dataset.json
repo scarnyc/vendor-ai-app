@@ -1,0 +1,331 @@
+{
+  "schema_version": "0.9",
+  "description": "Vendor intake triage eval dataset. Each case captures a vendor onboarding scenario and the expected agent verdict. Materialized cases have real fixture documents under cases/<id>/; designed cases document intended coverage and ship without fixtures.",
+  "coverage_dimensions": {
+    "risk_tier": ["low", "medium", "high"],
+    "vendor_stage": ["new", "renewal", "amendment", "expansion"],
+    "data_sensitivity": ["none", "public", "internal", "pii", "restricted_pii", "restricted_phi"],
+    "acv_band_usd": ["<10k", "10-50k", "50-100k", "100-500k", ">500k"],
+    "ai_involvement": ["none", "general", "training_on_customer_data"],
+    "doc_completeness": ["complete", "missing_w9", "missing_security_artifact", "missing_dpa", "missing_ai_optout", "multiple_missing"]
+  },
+  "scoring_rubric": {
+    "flag_count_within_range": "+1 if actual is inside expected.flag_count.range",
+    "flag_count_exact": "+1 if actual equals expected.flag_count.target",
+    "action_match": "+1 if actual recommended_action equals expected.recommended_action",
+    "risk_match": "+1 if actual risk_tier equals expected.risk_tier",
+    "severity_mix_block_match": "+1 if (actual has any block-severity flag) equals (expected.severity_mix.block > 0)",
+    "rationale_faithfulness": "+1 if rationale prose is consistent with deterministic tool output: (a) does not claim missing items when validate_required_documents reports none, (b) does not claim approval or vendor email sent, (c) draft_internal_ticket.severity (when present) matches the highest severity in policy_flags",
+    "max_per_case": 6
+  },
+  "cases": [
+    {
+      "id": "case_001",
+      "vendor_name": "Northstar Analytics",
+      "status": "materialized",
+      "fixture_dir": "cases/case_001/",
+      "inputs": {
+        "vendor_category": "data_analytics_saas",
+        "vendor_stage": "new",
+        "acv_usd": 85000,
+        "one_time_usd": 10000,
+        "term_months": 24,
+        "payment_terms": "Net 30",
+        "data_sensitivity": "pii",
+        "ai_involvement": "general",
+        "subprocessor_region": "EU",
+        "docs_present": ["intake_xlsx", "quote_csv", "vendor_email", "security_questionnaire", "contract_pdf"],
+        "open_items": ["soc2_type_ii_pending", "executed_dpa_pending"]
+      },
+      "expected": {
+        "flag_count": { "target": 3, "range": [2, 4] },
+        "recommended_action": "approve_with_followup",
+        "risk_tier": "medium",
+        "severity_mix": { "block": 0, "warn": 2, "info": 1 },
+        "approvers_routed": ["procurement_manager", "vp_finance", "legal", "security"]
+      },
+      "coverage_tags": ["risk:medium", "stage:new", "data:pii", "acv:50-100k", "subprocessor:eu"],
+      "notes": "Most-common shape — mid-market new vendor with PII and two open items. Tests routing breadth (4 approvers) and warn-not-block discrimination. The two open items (SOC 2 II pending, DPA pending) are correctable via vendor follow-up rather than blocking."
+    },
+    {
+      "id": "case_002",
+      "vendor_name": "Workspace Depot",
+      "status": "materialized",
+      "fixture_dir": "cases/case_002/",
+      "inputs": {
+        "vendor_category": "office_supplies",
+        "vendor_stage": "renewal",
+        "acv_usd": 12000,
+        "one_time_usd": 0,
+        "term_months": 12,
+        "payment_terms": "Net 30",
+        "data_sensitivity": "none",
+        "ai_involvement": "none",
+        "subprocessor_region": null,
+        "docs_present": ["intake_xlsx", "quote_csv", "vendor_email", "security_questionnaire", "contract_pdf"],
+        "open_items": ["w9", "updated_vendor_setup"]
+      },
+      "expected": {
+        "flag_count": { "target": 2, "range": [1, 3] },
+        "recommended_action": "approve_with_followup",
+        "risk_tier": "low",
+        "severity_mix": { "block": 0, "warn": 1, "info": 1 },
+        "approvers_routed": ["business_owner"]
+      },
+      "coverage_tags": ["risk:low", "stage:renewal", "data:none", "acv:10-50k", "ai:none"],
+      "notes": "Floor case — low-risk renewal of an existing vendor with no data access. Tests that the agent does NOT escalate routine paperwork; W-9 is a warn (must-have for payment) but not a block."
+    },
+    {
+      "id": "case_003",
+      "vendor_name": "TalentPulse AI",
+      "status": "materialized",
+      "fixture_dir": "cases/case_003/",
+      "inputs": {
+        "vendor_category": "hr_ai_analytics",
+        "vendor_stage": "new",
+        "acv_usd": 120000,
+        "one_time_usd": 20000,
+        "term_months": 36,
+        "payment_terms": "Net 60",
+        "data_sensitivity": "restricted_pii",
+        "ai_involvement": "training_on_customer_data",
+        "subprocessor_region": "APAC",
+        "docs_present": ["intake_xlsx", "quote_csv", "vendor_email", "security_questionnaire", "contract_pdf"],
+        "open_items": ["ai_training_optout_missing", "soc2_type_ii_missing", "executed_dpa_missing"]
+      },
+      "expected": {
+        "flag_count": { "target": 6, "range": [5, 8] },
+        "recommended_action": "escalate",
+        "risk_tier": "high",
+        "severity_mix": { "block": 3, "warn": 3, "info": 0 },
+        "approvers_routed": ["executive_sponsor", "cfo", "legal", "security"]
+      },
+      "coverage_tags": ["risk:high", "stage:new", "data:restricted_pii", "acv:100-500k", "ai:training_on_data", "subprocessor:apac", "terms:net60"],
+      "notes": "Ceiling case — multi-blocker scenario combining restricted PII + AI training on customer data + missing security/legal artifacts + cross-border + Net 60. Tests escalation reasoning (3 distinct blockers compound; agent must not collapse them into one flag)."
+    },
+    {
+      "id": "case_004",
+      "vendor_name": "Bluespoke Coffee Service",
+      "status": "designed",
+      "fixture_dir": null,
+      "inputs": {
+        "vendor_category": "office_services",
+        "vendor_stage": "renewal",
+        "acv_usd": 4800,
+        "one_time_usd": 0,
+        "term_months": 12,
+        "payment_terms": "Net 15",
+        "data_sensitivity": "none",
+        "ai_involvement": "none",
+        "subprocessor_region": null,
+        "docs_present": ["intake_xlsx", "quote_csv", "vendor_email", "security_questionnaire", "contract_pdf"],
+        "open_items": []
+      },
+      "expected": {
+        "flag_count": { "target": 1, "range": [0, 2] },
+        "recommended_action": "approve_with_followup",
+        "risk_tier": "low",
+        "severity_mix": { "block": 0, "warn": 0, "info": 1 },
+        "approvers_routed": ["business_owner"]
+      },
+      "coverage_tags": ["risk:low", "stage:renewal", "data:none", "acv:<10k", "docs:complete", "control"],
+      "notes": "Negative-control case — sub-$10k renewal with complete docs and no data. Tests that the agent doesn't manufacture flags when there is nothing to flag. Should yield at most one info-severity routing flag (business owner)."
+    },
+    {
+      "id": "case_005",
+      "vendor_name": "Helix Salesforce Plugin",
+      "status": "designed",
+      "fixture_dir": null,
+      "inputs": {
+        "vendor_category": "saas_addon",
+        "vendor_stage": "renewal",
+        "acv_usd": 38000,
+        "one_time_usd": 0,
+        "term_months": 12,
+        "payment_terms": "Net 30",
+        "data_sensitivity": "internal",
+        "ai_involvement": "none",
+        "subprocessor_region": "US",
+        "docs_present": ["intake_xlsx", "quote_csv", "vendor_email", "contract_pdf"],
+        "open_items": ["security_questionnaire_missing"]
+      },
+      "expected": {
+        "flag_count": { "target": 3, "range": [2, 4] },
+        "recommended_action": "approve_with_followup",
+        "risk_tier": "medium",
+        "severity_mix": { "block": 0, "warn": 2, "info": 1 },
+        "approvers_routed": ["procurement_manager", "security"]
+      },
+      "coverage_tags": ["risk:medium", "stage:renewal", "data:internal", "acv:10-50k", "docs:missing_security_artifact"],
+      "notes": "Tests the middle-data tier (internal, not PII) — security review is required because integration touches CRM but no PII passes through. Single missing artifact (security questionnaire) keeps it in approve_with_followup."
+    },
+    {
+      "id": "case_006",
+      "vendor_name": "Vantage Cybersecurity Suite",
+      "status": "designed",
+      "fixture_dir": null,
+      "inputs": {
+        "vendor_category": "security_tooling",
+        "vendor_stage": "new",
+        "acv_usd": 220000,
+        "one_time_usd": 35000,
+        "term_months": 24,
+        "payment_terms": "Net 30",
+        "data_sensitivity": "restricted_pii",
+        "ai_involvement": "none",
+        "subprocessor_region": "US",
+        "docs_present": ["intake_xlsx", "quote_csv", "vendor_email", "security_questionnaire", "contract_pdf"],
+        "open_items": []
+      },
+      "expected": {
+        "flag_count": { "target": 4, "range": [3, 5] },
+        "recommended_action": "approve_with_followup",
+        "risk_tier": "high",
+        "severity_mix": { "block": 0, "warn": 2, "info": 2 },
+        "approvers_routed": ["procurement_manager", "cfo", "legal", "security"]
+      },
+      "coverage_tags": ["risk:high", "stage:new", "data:restricted_pii", "acv:100-500k", "ai:none", "docs:complete"],
+      "notes": "Isolates restricted-PII risk without the AI confound — tests that high risk_tier alone does NOT trigger escalation when all blockers are resolved (SOC 2 II provided, DPA executed). Compares to case_003 where the same data tier WITH blockers → escalate."
+    },
+    {
+      "id": "case_007",
+      "vendor_name": "Cumulus Cloud Compute",
+      "status": "designed",
+      "fixture_dir": null,
+      "inputs": {
+        "vendor_category": "cloud_infra",
+        "vendor_stage": "expansion",
+        "acv_usd": 780000,
+        "one_time_usd": 0,
+        "term_months": 36,
+        "payment_terms": "Net 45",
+        "data_sensitivity": "restricted_pii",
+        "ai_involvement": "general",
+        "subprocessor_region": "Multi-region",
+        "docs_present": ["intake_xlsx", "quote_csv", "vendor_email", "security_questionnaire", "contract_pdf"],
+        "open_items": []
+      },
+      "expected": {
+        "flag_count": { "target": 5, "range": [4, 6] },
+        "recommended_action": "escalate",
+        "risk_tier": "high",
+        "severity_mix": { "block": 0, "warn": 3, "info": 2 },
+        "approvers_routed": ["executive_sponsor", "board_finance_committee", "cfo", "legal", "security"]
+      },
+      "coverage_tags": ["risk:high", "stage:expansion", "data:restricted_pii", "acv:>500k", "terms:net45"],
+      "notes": "Board-tier ACV ($500k+) with complete docs. Tests that escalation can be driven by ACV alone (Board approval required) even when no policy blockers exist. Stress-tests the routing layer (5 approvers including Board Finance Committee)."
+    },
+    {
+      "id": "case_008",
+      "vendor_name": "Mosaic Healthcare Records",
+      "status": "designed",
+      "fixture_dir": null,
+      "inputs": {
+        "vendor_category": "healthcare_saas",
+        "vendor_stage": "new",
+        "acv_usd": 180000,
+        "one_time_usd": 25000,
+        "term_months": 24,
+        "payment_terms": "Net 30",
+        "data_sensitivity": "restricted_phi",
+        "ai_involvement": "none",
+        "subprocessor_region": "US",
+        "docs_present": ["intake_xlsx", "quote_csv", "vendor_email", "contract_pdf"],
+        "open_items": ["baa_missing", "soc2_type_ii_missing", "hitrust_certification_missing"]
+      },
+      "expected": {
+        "flag_count": { "target": 6, "range": [5, 7] },
+        "recommended_action": "escalate",
+        "risk_tier": "high",
+        "severity_mix": { "block": 2, "warn": 3, "info": 1 },
+        "approvers_routed": ["executive_sponsor", "cfo", "legal", "security", "compliance"]
+      },
+      "coverage_tags": ["risk:high", "stage:new", "data:restricted_phi", "acv:100-500k", "ai:none", "hipaa_baa_required"],
+      "notes": "PHI-specific path — HIPAA requires a signed Business Associate Agreement before any PHI flows. Tests that the agent recognizes BAA as a distinct artifact from a generic DPA, and that PHI triggers compliance routing on top of legal/security."
+    },
+    {
+      "id": "case_009",
+      "vendor_name": "FieldKit IoT Sensors",
+      "status": "designed",
+      "fixture_dir": null,
+      "inputs": {
+        "vendor_category": "iot_hardware",
+        "vendor_stage": "amendment",
+        "acv_usd": 60000,
+        "one_time_usd": 0,
+        "term_months": 12,
+        "payment_terms": "Net 30",
+        "data_sensitivity": "internal",
+        "ai_involvement": "none",
+        "subprocessor_region": "US",
+        "docs_present": ["amendment_pdf", "quote_csv", "vendor_email"],
+        "open_items": []
+      },
+      "expected": {
+        "flag_count": { "target": 2, "range": [1, 3] },
+        "recommended_action": "approve_with_followup",
+        "risk_tier": "medium",
+        "severity_mix": { "block": 0, "warn": 1, "info": 1 },
+        "approvers_routed": ["procurement_manager", "vp_finance"]
+      },
+      "coverage_tags": ["risk:medium", "stage:amendment", "data:internal", "acv:50-100k", "docs:amendment_only"],
+      "notes": "Amendment to an existing contract — agent should skip full intake re-validation and focus on the delta. Tests that vendor_stage='amendment' suppresses the full security/legal sweep when no terms changed materially."
+    },
+    {
+      "id": "case_010",
+      "vendor_name": "Argus AI Code Reviewer",
+      "status": "designed",
+      "fixture_dir": null,
+      "inputs": {
+        "vendor_category": "developer_tools_ai",
+        "vendor_stage": "new",
+        "acv_usd": 42000,
+        "one_time_usd": 0,
+        "term_months": 12,
+        "payment_terms": "Net 30",
+        "data_sensitivity": "internal",
+        "ai_involvement": "training_on_customer_data",
+        "subprocessor_region": "US",
+        "docs_present": ["intake_xlsx", "quote_csv", "vendor_email", "security_questionnaire", "contract_pdf"],
+        "open_items": ["ai_training_optout_missing"]
+      },
+      "expected": {
+        "flag_count": { "target": 3, "range": [2, 4] },
+        "recommended_action": "approve_with_followup",
+        "risk_tier": "medium",
+        "severity_mix": { "block": 0, "warn": 2, "info": 1 },
+        "approvers_routed": ["procurement_manager", "legal", "security"]
+      },
+      "coverage_tags": ["risk:medium", "stage:new", "data:internal", "acv:10-50k", "ai:training_on_data", "docs:missing_ai_optout"],
+      "notes": "Discrimination test — AI training on customer data WITHOUT restricted-PII. Compares to case_003 where the same AI-training-opt-out gap was a block (because data was restricted). Here, internal-data + missing opt-out should be a warn (correctable via vendor reply), not a block."
+    },
+    {
+      "id": "case_011",
+      "vendor_name": "Zenith Compliance Audit",
+      "status": "designed",
+      "fixture_dir": null,
+      "inputs": {
+        "vendor_category": "professional_services_individual",
+        "vendor_stage": "new",
+        "acv_usd": 26000,
+        "one_time_usd": 0,
+        "term_months": 6,
+        "payment_terms": "Net 30",
+        "data_sensitivity": "internal",
+        "ai_involvement": "none",
+        "subprocessor_region": "US",
+        "docs_present": ["intake_xlsx", "quote_csv", "vendor_email", "contract_pdf"],
+        "open_items": ["1099_classification", "coi_missing"]
+      },
+      "expected": {
+        "flag_count": { "target": 2, "range": [1, 3] },
+        "recommended_action": "approve_with_followup",
+        "risk_tier": "low",
+        "severity_mix": { "block": 0, "warn": 1, "info": 1 },
+        "approvers_routed": ["procurement_manager", "vp_finance"]
+      },
+      "coverage_tags": ["risk:low", "stage:new", "data:internal", "acv:10-50k", "vendor_type:individual_contractor"],
+      "notes": "Edge case — individual contractor (1099) not a corp. Tests that the agent surfaces the W-9 vs 1099 distinction and a Certificate of Insurance gap, but doesn't misclassify a short-term audit engagement as needing the full security review."
+    }
+  ]
+}
