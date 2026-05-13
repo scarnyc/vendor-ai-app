@@ -183,7 +183,13 @@ export type ToolCallRecord = z.infer<typeof ToolCallRecordSchema>;
 /* ─── Human-in-the-loop verdict (set ONLY after operator click) ─────────── */
 
 export const HumanDecisionSchema = z.object({
-  verdict: z.enum(['approved', 'rejected', 'edit_and_rerun', 'request_followup']),
+  // T1.4: Three-button operator model.
+  // - approved: vendor submitted everything; no blockers, no executive approval needed.
+  // - rejected: vendor must resubmit required paperwork.
+  // - escalated: CFO approval is needed (out-of-band executive routing).
+  // The agent's recommended_action enum (RecommendedActionSchema) is separate
+  // and unchanged — the agent recommends, the human decides.
+  verdict: z.enum(['approved', 'rejected', 'escalated']),
   notes: z.string().nullable(),
   decided_at: z.string(),
   decided_by: z.string(),

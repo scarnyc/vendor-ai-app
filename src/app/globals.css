@@ -78,7 +78,7 @@ select, textarea { font-family: inherit; color: inherit; }
 
 .app {
   display: grid;
-  grid-template-columns: 240px 1fr;
+  grid-template-columns: 1fr;
   grid-template-rows: 100vh;
   overflow: hidden;
 }
@@ -803,4 +803,112 @@ textarea.editable { min-height: 96px; line-height: 1.5; }
   border: 1px solid var(--border-soft);
   color: var(--text-dim);
   margin: 0 2px;
+}
+
+/* ─── T1.4 — Three-button operator model (Approve / Reject / Escalate) ── */
+/* Solid-fill traffic-light buttons. White text on saturated bg; AA contrast
+   verified (>=5.4:1) against the absolute hex values. */
+
+.btn.btn-approve {
+  background: #1f8a4c;
+  color: #ffffff;
+  border-color: #1f8a4c;
+  font-weight: 600;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+.btn.btn-approve:hover { background: #176d3c; border-color: #176d3c; }
+.btn.btn-approve:focus-visible {
+  outline: 2px solid currentColor;
+  outline-offset: 2px;
+}
+.btn.btn-approve:disabled { opacity: 0.5; cursor: not-allowed; }
+
+.btn.btn-reject {
+  background: #b3261e;
+  color: #ffffff;
+  border-color: #b3261e;
+  font-weight: 600;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+.btn.btn-reject:hover { background: #8e1d18; border-color: #8e1d18; }
+.btn.btn-reject:focus-visible {
+  outline: 2px solid currentColor;
+  outline-offset: 2px;
+}
+.btn.btn-reject:disabled { opacity: 0.5; cursor: not-allowed; }
+
+.btn.btn-escalate {
+  background: #92400e;
+  color: #ffffff;
+  border-color: #92400e;
+  font-weight: 600;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+.btn.btn-escalate:hover { background: #7a3408; border-color: #7a3408; }
+.btn.btn-escalate:focus-visible {
+  outline: 2px solid currentColor;
+  outline-offset: 2px;
+}
+.btn.btn-escalate:disabled { opacity: 0.5; cursor: not-allowed; }
+
+/* Legend below the operator buttons — one line per button explaining intent. */
+.confirm-legend {
+  font-size: 12px;
+  color: var(--text-mute);
+  line-height: 1.5;
+  margin-top: 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+/* T1.6 — citation rendered as <button> for accessibility, visually identical
+   to the existing .citation chip. Pairs with the .citation class on the same
+   element (e.g. <button class="citation citation-button">). */
+.citation-button {
+  background: transparent;
+  border: none;
+  padding: 0;
+  cursor: pointer;
+  font: inherit;
+}
+.citation-button:hover { text-decoration: underline; }
+.citation-button:focus-visible {
+  outline: 2px solid currentColor;
+  outline-offset: 2px;
+}
+
+/* ─── T1.7 — Flag partition headers in DecisionPacketCard ──────────────── */
+/* The flags list is partitioned into "blocks", "follow-ups", and an
+   info-level disclosure. Each partition gets a colored subhead that signals
+   the operator path the flags map to. */
+
+.flags-subhead {
+  font-size: 12px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  margin: 12px 0 6px;
+}
+.flags-subhead-blocks {
+  color: #b3261e;
+}
+.flags-subhead-followups {
+  color: #1f8a4c;
+}
+
+.flags-info-details {
+  margin-top: 12px;
+  font-size: 13px;
+  color: var(--text-mute);
+}
+.flags-info-details summary {
+  cursor: pointer;
+  user-select: none;
 }

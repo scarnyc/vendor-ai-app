@@ -194,3 +194,16 @@ the human gate, so a fallback model with weaker quoting just produces more
 
 Set `LANGSMITH_API_KEY` + `LANGSMITH_PROJECT=vendor-triage`. Every node + tool
 call appears in the LangSmith dashboard. Free observability for the reviewer.
+
+## Fixture surfaces
+
+Two case-shaped fixture surfaces sit side by side and are intentionally
+hand-synced for the take-home. `src/lib/cases.ts` is a UI-only metadata
+fixture — `vendor_name`, `short_name`, `acv_short`, `one_liner` — consumed by
+the case-tab strip and canvas header so the operator can scan the queue
+without invoking the agent. It is *not* ground truth: the agent never reads
+it. Ground truth lives under `cases/<id>/` (`intake_xlsx`, `vendor_email_txt`,
+`quote_csv`, `security_questionnaire_md`, `contract_pdf`) and is the only
+input `parse_inputs` sees. The two are kept in sync by hand for the three
+demo cases; production swap is a Workday / NetSuite vendor read against the
+real vendor master, which removes the hand-sync entirely.

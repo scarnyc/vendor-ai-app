@@ -106,7 +106,9 @@ async function runCase(page, caseId) {
     });
   }
 
-  const required = ['Risk tier', 'Required approvers', 'Policy flags'];
+  // Post-T1.4/T1.5: the packet header renders "Risk: Low/Medium/High" (not
+  // "Risk tier:" — that label belonged to the removed inline-edit dropdown).
+  const required = ['Risk:', 'Required approvers', 'Policy flags'];
   const missing = [];
   for (const needle of required) {
     if (!(await pageContains(page, needle))) missing.push(needle);

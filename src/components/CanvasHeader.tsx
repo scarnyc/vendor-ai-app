@@ -1,7 +1,6 @@
 'use client';
 
 import type { CaseMeta } from '@/lib/cases';
-import { LENSES, type LensId } from '@/lib/personas';
 import type { DecisionPacket, RunStatus } from '@/lib/agent/schemas';
 
 interface ProviderInfo {
@@ -12,7 +11,6 @@ interface ProviderInfo {
 
 interface Props {
   caseMeta: CaseMeta;
-  lens: LensId;
   runStatus: RunStatus;
   decisionPacket: DecisionPacket | null;
   providerInfo?: ProviderInfo | null;
@@ -20,14 +18,10 @@ interface Props {
 
 export function CanvasHeader({
   caseMeta,
-  lens,
   runStatus,
   decisionPacket,
   providerInfo,
 }: Props) {
-  const lensMeta = LENSES.find((l) => l.id === lens);
-  const showLensChip = lensMeta && !lensMeta.is_operator;
-
   return (
     <header className="canvas-header">
       <div>
@@ -44,9 +38,6 @@ export function CanvasHeader({
         >
           {providerInfo.label}
         </span>
-      )}
-      {showLensChip && (
-        <span className="lens-chip">viewing as: {lensMeta.label}</span>
       )}
       <StatusBadge runStatus={runStatus} decisionPacket={decisionPacket} />
     </header>
@@ -74,11 +65,9 @@ function StatusBadge({
       case 'approved':
         return <span className="badge b-success">Approved by operator</span>;
       case 'rejected':
-        return <span className="badge b-danger">Rejected & escalated</span>;
-      case 'edit_and_rerun':
-        return <span className="badge b-warn">Edit &amp; re-run</span>;
-      case 'request_followup':
-        return <span className="badge b-warn">Follow-up requested</span>;
+        return <span className="badge b-danger">Rejected — vendor must resubmit</span>;
+      case 'escalated':
+        return <span className="badge b-warn">Escalated to CFO</span>;
     }
   }
 

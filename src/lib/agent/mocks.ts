@@ -23,12 +23,12 @@ export interface MockLlmOutput {
 export const MOCK_LLM_OUTPUT: Record<string, MockLlmOutput> = {
   case_001: {
     intake_summary:
-      'Northstar Analytics — predictive analytics overlay on Salesforce CRM data. ACV $85k + $10k one-time, 24mo term, Net 30. Customer PII in scope (CRM opportunity history, named-user analytics). Vendor cites SOC 2 Type II in progress and uses an EU-based subprocessor for analytics compute. DPA proposed but not yet executed. Cost center REVOPS-042 (Maya Patel).',
+      'Northstar Analytics — predictive analytics overlay on Salesforce CRM data. ACV $85k + $10k one-time, 24mo term, Net 30. Customer PII in scope (CRM opportunity history, named-user analytics). SOC 2 Type II not provided (Type I available). EU-based subprocessor handles analytics compute. DPA proposed but not yet executed. Cost center REVOPS-042 (Maya Patel).',
     policy_flags: [
       {
         severity: 'warn',
         issue:
-          'SOC 2 Type II report not yet available — vendor reports it is in progress. Security review must verify equivalent controls before contract signature.',
+          'SOC 2 Type II not provided (Type I available per security questionnaire). Security review must verify equivalent controls or request Type II before contract signature.',
         recipient: 'security',
         citations: [
           {

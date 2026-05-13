@@ -2,9 +2,7 @@
 
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { CASES, CASE_IDS, type CaseId } from '@/lib/cases';
-import { DEFAULT_LENS, type LensId } from '@/lib/personas';
 import type { AgentState, HumanDecision, PolicyCitation } from '@/lib/agent/schemas';
-import { PersonaRail } from './PersonaRail';
 import { CaseTabs } from './CaseTabs';
 import { CanvasHeader } from './CanvasHeader';
 import { PlanList } from './PlanList';
@@ -31,7 +29,6 @@ interface RunResponse {
 
 export function Workbench() {
   const [caseId, setCaseId] = useState<CaseId>('case_001');
-  const [lens, setLens] = useState<LensId>(DEFAULT_LENS);
   const [stateByCase, setStateByCase] = useState<Partial<Record<CaseId, AgentState>>>({});
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -125,12 +122,9 @@ export function Workbench() {
 
   return (
     <div className="app">
-      <PersonaRail lens={lens} onChange={setLens} />
-
       <main className="canvas">
         <CanvasHeader
           caseMeta={caseMeta}
-          lens={lens}
           runStatus={runStatus}
           decisionPacket={decisionPacket}
           providerInfo={providerInfo}
@@ -185,6 +179,7 @@ export function Workbench() {
                         record={t}
                         packet={decisionPacket}
                         defaultOpen={i === 0}
+                        onCitationClick={setDrawerCitation}
                       />
                     ))}
                   </>
@@ -193,12 +188,10 @@ export function Workbench() {
                 {decisionPacket && (
                   <DecisionPacketCard
                     packet={decisionPacket}
-                    lens={lens}
                     onCitationClick={setDrawerCitation}
                   >
                     <ConfirmationCard
                       packet={decisionPacket}
-                      lens={lens}
                       busy={busy}
                       onSubmit={submitDecision}
                     />

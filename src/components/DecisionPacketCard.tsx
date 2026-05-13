@@ -1,12 +1,10 @@
 'use client';
 
 import type { DecisionPacket, PolicyCitation, PolicyFlag, RequiredApprover } from '@/lib/agent/schemas';
-import { filterFlagsForLens, type LensId } from '@/lib/personas';
 import { CitationChip } from './CitationChip';
 
 interface Props {
   packet: DecisionPacket;
-  lens: LensId;
   onCitationClick: (citation: PolicyCitation) => void;
   children?: React.ReactNode;
 }
@@ -21,8 +19,7 @@ const APPROVER_LABEL: Record<RequiredApprover, string> = {
   security: 'Security',
 };
 
-export function DecisionPacketCard({ packet, lens, onCitationClick, children }: Props) {
-  const visibleFlags = filterFlagsForLens(packet.policy_flags, lens);
+export function DecisionPacketCard({ packet, onCitationClick, children }: Props) {
   const riskLabel = packet.risk_tier.charAt(0).toUpperCase() + packet.risk_tier.slice(1);
   const dataLabel = packet.data_class.charAt(0).toUpperCase() + packet.data_class.slice(1);
 
@@ -45,7 +42,7 @@ export function DecisionPacketCard({ packet, lens, onCitationClick, children }: 
       <div className="packet-body">
         <Stats packet={packet} />
         <IntakeSummary text={packet.intake_summary} />
-        <Flags flags={visibleFlags} totalCount={packet.policy_flags.length} onCitationClick={onCitationClick} />
+        <Flags flags={packet.policy_flags} onCitationClick={onCitationClick} />
         <Approvers approvers={packet.required_approvers} />
         <Recommendation packet={packet} />
       </div>
@@ -106,33 +103,67 @@ function IntakeSummary({ text }: { text: string }) {
 
 function Flags({
   flags,
-  totalCount,
   onCitationClick,
 }: {
   flags: PolicyFlag[];
-  totalCount: number;
   onCitationClick: (c: PolicyCitation) => void;
 }) {
-  const filteredOut = totalCount - flags.length;
+  // T1.7: Partition by severity so the operator can read at a glance which
+  // flags are blockers (escalate path) vs follow-ups (ship with approval).
+  // Info-severity flags stay collapsed — they don't change routing.
+  const blocks = flags.filter((f) => f.severity === 'block');
+  const followups = flags.filter((f) => f.severity === 'warn');
+  const info = flags.filter((f) => f.severity === 'info');
+
+  if (flags.length === 0) {
+    return (
+      <div>
+        <div className="section-h">Policy flags · 0</div>
+        <div className="case-meta">No policy flags raised by the agent.</div>
+      </div>
+    );
+  }
+
   return (
     <div>
-      <div className="section-h">
-        Policy flags · {flags.length}
-        {filteredOut > 0 && (
-          <span className="case-meta" style={{ fontWeight: 400, marginLeft: 8 }}>
-            ({filteredOut} hidden by recipient lens)
-          </span>
-        )}
-      </div>
-      <div className="flag-list">
-        {flags.length === 0 ? (
-          <div className="case-meta">No flags routed to this recipient.</div>
-        ) : (
-          flags.map((flag, i) => (
-            <FlagRow key={i} flag={flag} onCitationClick={onCitationClick} />
-          ))
-        )}
-      </div>
+      <div className="section-h">Policy flags · {flags.length}</div>
+
+      {blocks.length > 0 && (
+        <div style={{ marginBottom: 16 }}>
+          <div className="flags-subhead flags-subhead-blocks">
+            Blocking issues (escalate path) · {blocks.length}
+          </div>
+          <div className="flag-list">
+            {blocks.map((flag, i) => (
+              <FlagRow key={`block-${i}`} flag={flag} onCitationClick={onCitationClick} />
+            ))}
+          </div>
+        </div>
+      )}
+
+      {followups.length > 0 && (
+        <div style={{ marginBottom: info.length > 0 ? 12 : 0 }}>
+          <div className="flags-subhead flags-subhead-followups">
+            Vendor follow-ups (ship with approval) · {followups.length}
+          </div>
+          <div className="flag-list">
+            {followups.map((flag, i) => (
+              <FlagRow key={`warn-${i}`} flag={flag} onCitationClick={onCitationClick} />
+            ))}
+          </div>
+        </div>
+      )}
+
+      {info.length > 0 && (
+        <details className="flags-info-details">
+          <summary>Informational · {info.length}</summary>
+          <div className="flag-list">
+            {info.map((flag, i) => (
+              <FlagRow key={`info-${i}`} flag={flag} onCitationClick={onCitationClick} />
+            ))}
+          </div>
+        </details>
+      )}
     </div>
   );
 }
@@ -195,12 +226,15 @@ function Recommendation({ packet }: { packet: DecisionPacket }) {
       : action === 'escalate'
         ? 'Recommended: Escalate to executive sponsor'
         : 'Recommended: Approve with follow-up';
+  // T1.1: The approve_with_followup branch returns null because its old
+  // "Request the listed missing items..." subtitle contradicted the
+  // deterministic doc-inventory check directly above it.
   const sub =
     action === 'block'
-      ? 'Multiple blocking policy violations; the package cannot be approved as submitted. Operator may reject + escalate or request follow-up to resolve.'
+      ? 'Multiple blocking policy violations; the package cannot be approved as submitted. Operator may reject or escalate to resolve.'
       : action === 'escalate'
         ? 'Risk pattern exceeds standard routing; escalate to executive sponsor with the audit trail attached.'
-        : 'Request the listed missing items from the vendor before routing to the named approvers. Final approval is at your discretion.';
+        : null;
 
   return (
     <div className={cls}>
@@ -216,7 +250,7 @@ function Recommendation({ packet }: { packet: DecisionPacket }) {
       </svg>
       <div className="recommended-text">
         <div className="recommended-title">{title}</div>
-        <div className="recommended-sub">{sub}</div>
+        {sub && <div className="recommended-sub">{sub}</div>}
       </div>
     </div>
   );

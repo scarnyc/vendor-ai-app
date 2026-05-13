@@ -2,6 +2,7 @@
 
 import type {
   DecisionPacket,
+  PolicyCitation,
   PolicyDoc,
   PolicyFlag,
   ToolCallRecord,
@@ -11,6 +12,7 @@ interface Props {
   record: ToolCallRecord;
   packet: DecisionPacket | null;
   defaultOpen?: boolean;
+  onCitationClick?: (citation: PolicyCitation) => void;
 }
 
 interface DisplayRow {
@@ -19,7 +21,7 @@ interface DisplayRow {
   emphasis?: 'ok' | 'warn' | 'block';
 }
 
-export function ToolAuditCard({ record, packet, defaultOpen = false }: Props) {
+export function ToolAuditCard({ record, packet, defaultOpen = false, onCitationClick }: Props) {
   const seconds = (record.duration_ms / 1000).toFixed(2);
   const rows = buildRows(record, packet);
   const cited = packet ? citedByFor(record.tool_name, packet.policy_flags) : [];
@@ -42,9 +44,15 @@ export function ToolAuditCard({ record, packet, defaultOpen = false }: Props) {
           <div className="audit-footer">
             <span className="footer-label">Cited by →</span>
             {cited.map((c, i) => (
-              <span key={i} className="citation">
-                {c}
-              </span>
+              <button
+                key={i}
+                type="button"
+                className="citation citation-button"
+                onClick={() => onCitationClick?.(c.citation)}
+                title={`${c.citation.policy_doc.replace(/_/g, ' ')} § ${c.citation.section}`}
+              >
+                {c.label}
+              </button>
             ))}
           </div>
         )}
@@ -102,7 +110,11 @@ function rowsForValidateDocs(record: ToolCallRecord, packet: DecisionPacket | nu
   const present = asArray(record.result_summary.present);
   const missing = asArray(record.result_summary.missing);
   const verdict = missing.length === 0
-    ? { text: 'All required documents present', emphasis: 'ok' as const }
+    ? {
+        text:
+          'All required case-folder documents present (intake form, vendor email, quote, security questionnaire, contract).',
+        emphasis: 'ok' as const,
+      }
     : missing.length <= 2
       ? { text: `${missing.length} missing — non-blocking`, emphasis: 'warn' as const }
       : { text: `${missing.length} missing — package incomplete`, emphasis: 'block' as const };
@@ -292,11 +304,14 @@ const CITED_BY_DOCS: Record<string, PolicyDoc[]> = {
   validate_citations: [],
 };
 
-function citedByFor(toolName: string, flags: PolicyFlag[]): string[] {
+function citedByFor(
+  toolName: string,
+  flags: PolicyFlag[]
+): Array<{ label: string; citation: PolicyCitation }> {
   const docs = new Set<PolicyDoc>(CITED_BY_DOCS[toolName] ?? []);
   if (docs.size === 0) return [];
   const seen = new Set<string>();
-  const labels: string[] = [];
+  const out: Array<{ label: string; citation: PolicyCitation }> = [];
   for (const flag of flags) {
     const matchingCitation = flag.citations.find((c) => docs.has(c.policy_doc));
     if (!matchingCitation) continue;
@@ -305,10 +320,10 @@ function citedByFor(toolName: string, flags: PolicyFlag[]): string[] {
     const label = `${recipient}: ${issue}`;
     if (seen.has(label)) continue;
     seen.add(label);
-    labels.push(label);
-    if (labels.length >= 3) break;
+    out.push({ label, citation: matchingCitation });
+    if (out.length >= 3) break;
   }
-  return labels;
+  return out;
 }
 
 /* ─── Formatting helpers ───────────────────────────────────────────────── */

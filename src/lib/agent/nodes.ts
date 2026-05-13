@@ -556,20 +556,22 @@ export async function humanApprovalNode(state: AgentState): Promise<StateUpdate>
     decision_packet: state.decision_packet,
   }) as HumanDecision;
 
+  // T1.4: Three-verdict model — approved/rejected go to decided;
+  // escalated marks the packet as routed out-of-band to the CFO.
+  const runStatus = verdict.verdict === 'escalated' ? 'escalated' : 'decided';
+
   return {
     human_decision: verdict,
     decision_packet: { ...state.decision_packet, human_decision: verdict },
     current_node: 'human_approval',
-    run_status: verdict.verdict === 'edit_and_rerun' ? 'reasoning' : 'decided',
+    run_status: runStatus,
   };
 }
 
-/* HITL → next-node router. Edit-and-re-run loops back to data classification
- * (LLM-driven nodes only); deterministic tools have already memoized. */
-export function postHumanRouter(state: AgentState): 'classify_data_sensitivity' | 'emit_final' {
-  return state.human_decision?.verdict === 'edit_and_rerun'
-    ? 'classify_data_sensitivity'
-    : 'emit_final';
+/* HITL → next-node router. All three verdicts terminate at emit_final;
+ * the Edit & re-run loop-back is deferred (see PRODUCTIONIZATION.md). */
+export function postHumanRouter(_state: AgentState): 'emit_final' {
+  return 'emit_final';
 }
 
 /* ─── Final emission ───────────────────────────────────────────────────── */

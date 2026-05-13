@@ -15,7 +15,7 @@ import { resolve } from 'node:path';
 import { Command } from '@langchain/langgraph';
 import { graph, seedState } from '../src/lib/agent/graph';
 import { getProviderInfo } from '../src/lib/agent/llm';
-import type { DecisionPacket, PolicyFlag } from '../src/lib/agent/schemas';
+import type { DecisionPacket, PolicyFlag, ToolCallRecord } from '../src/lib/agent/schemas';
 
 interface DatasetCase {
   id: string;
@@ -55,13 +55,15 @@ interface Scorecard {
     action_match: boolean;
     risk_match: boolean;
     severity_mix_block_match: boolean;
+    rationale_faithfulness: boolean;
   };
+  rationaleFaithfulnessReasons?: string[];
   points: number;
   error?: string;
   coverage_tags: string[];
 }
 
-const POINTS_PER_CASE = 5;
+const POINTS_PER_CASE = 6;
 
 function loadDataset(): Dataset {
   const path = resolve(process.cwd(), 'eval/dataset.json');
@@ -77,6 +79,55 @@ async function runCase(caseId: string): Promise<{ packet: DecisionPacket | undef
   return { packet: snap.values?.decision_packet, ms: Date.now() - t0 };
 }
 
+/**
+ * Catch rationale prose that contradicts deterministic tool output (the
+ * subtitle bug class — the LLM narrating something the tools didn't say).
+ * Three sub-checks; passes only if ALL three pass.
+ */
+function rationaleFaithfulness(
+  packet: DecisionPacket,
+  toolAudit: ToolCallRecord[]
+): { pass: boolean; reasons: string[] } {
+  const reasons: string[] = [];
+  const rationale = packet.rationale ?? '';
+
+  // 1. Rationale doesn't claim "missing items" when validate_required_documents
+  //    reports nothing missing.
+  const inventoryRecord = toolAudit.find(
+    (t) => t.tool_name === 'validate_required_documents'
+  );
+  const output = inventoryRecord?.result_summary as { missing?: unknown[] } | undefined;
+  const allPresent = (output?.missing ?? []).length === 0;
+  if (allPresent && /missing\s+(items|documents|docs)/i.test(rationale)) {
+    reasons.push('rationale mentions missing items but inventory check says all present');
+  }
+
+  // 2. Rationale doesn't violate hard product lines (never claims approval or
+  //    that an email was sent — both are operator-only actions).
+  if (/\b(have\s+approved|i\s+approved|email\s+sent|sent\s+to\s+vendor)\b/i.test(rationale)) {
+    reasons.push('rationale violates hard product lines (claims approval or send)');
+  }
+
+  // 3. draft_internal_ticket.severity (when shaped as an object) matches the
+  //    highest severity in policy_flags. Current schema has draft_internal_ticket
+  //    as a string, so this only fires if the shape evolves to an object — kept
+  //    forward-compatible.
+  const flags = packet.policy_flags ?? [];
+  const highestFlagSeverity = flags.some((f) => f.severity === 'block')
+    ? 'high'
+    : flags.some((f) => f.severity === 'warn')
+      ? 'medium'
+      : 'low';
+  const ticket = packet.draft_internal_ticket as unknown as { severity?: string } | undefined;
+  if (ticket?.severity && ticket.severity !== highestFlagSeverity) {
+    reasons.push(
+      `ticket severity ${ticket.severity} disagrees with policy_flags max ${highestFlagSeverity}`
+    );
+  }
+
+  return { pass: reasons.length === 0, reasons };
+}
+
 function score(c: DatasetCase, packet: DecisionPacket): Scorecard {
   const flags = packet.policy_flags as PolicyFlag[];
   const actualFlagCount = flags.length;
@@ -90,13 +141,15 @@ function score(c: DatasetCase, packet: DecisionPacket): Scorecard {
   const action_match = packet.recommended_action === c.expected.recommended_action;
   const risk_match = packet.risk_tier === c.expected.risk_tier;
   const severity_mix_block_match = hasBlock === expectsBlock;
+  const faithfulness = rationaleFaithfulness(packet, packet.tools_called ?? []);
 
   const points =
     (flag_count_within_range ? 1 : 0) +
     (flag_count_exact ? 1 : 0) +
     (action_match ? 1 : 0) +
     (risk_match ? 1 : 0) +
-    (severity_mix_block_match ? 1 : 0);
+    (severity_mix_block_match ? 1 : 0) +
+    (faithfulness.pass ? 1 : 0);
 
   return {
     caseId: c.id,
@@ -104,7 +157,15 @@ function score(c: DatasetCase, packet: DecisionPacket): Scorecard {
     ms: 0,
     actual: { flags: actualFlagCount, action: packet.recommended_action, risk: packet.risk_tier, hasBlock },
     expected: c.expected,
-    checks: { flag_count_within_range, flag_count_exact, action_match, risk_match, severity_mix_block_match },
+    checks: {
+      flag_count_within_range,
+      flag_count_exact,
+      action_match,
+      risk_match,
+      severity_mix_block_match,
+      rationale_faithfulness: faithfulness.pass,
+    },
+    rationaleFaithfulnessReasons: faithfulness.reasons,
     points,
     coverage_tags: c.coverage_tags,
   };
@@ -169,8 +230,14 @@ async function main() {
           `action=${card.actual!.action} ${tick(ck.action_match)}  ` +
           `risk=${card.actual!.risk} ${tick(ck.risk_match)}  ` +
           `block=${card.actual!.hasBlock ? 'yes' : 'no'} ${tick(ck.severity_mix_block_match)}  ` +
+          `rationale=${ck.rationale_faithfulness ? 'pass' : 'fail'} ${tick(ck.rationale_faithfulness)}  ` +
           `score=${card.points}/${POINTS_PER_CASE}`
       );
+      if (!ck.rationale_faithfulness && card.rationaleFaithfulnessReasons?.length) {
+        for (const reason of card.rationaleFaithfulnessReasons) {
+          console.log(`    rationale_faithfulness: ${reason}`);
+        }
+      }
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
       console.log(`THROW — ${msg}`);
@@ -200,6 +267,7 @@ async function main() {
   console.log(`action match:             ${checkSummary('action_match')}/${materialized.length}`);
   console.log(`risk match:               ${checkSummary('risk_match')}/${materialized.length}`);
   console.log(`severity mix block match: ${checkSummary('severity_mix_block_match')}/${materialized.length}`);
+  console.log(`rationale faithfulness:   ${checkSummary('rationale_faithfulness')}/${materialized.length}`);
 
   // ── Coverage tag breakdown ────────────────────────────────────────────
   const byTag = coverageBreakdown(scorecards);

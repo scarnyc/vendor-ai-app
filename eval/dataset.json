@@ -15,7 +15,8 @@
     "action_match": "+1 if actual recommended_action equals expected.recommended_action",
     "risk_match": "+1 if actual risk_tier equals expected.risk_tier",
     "severity_mix_block_match": "+1 if (actual has any block-severity flag) equals (expected.severity_mix.block > 0)",
-    "max_per_case": 5
+    "rationale_faithfulness": "+1 if rationale prose is consistent with deterministic tool output: (a) does not claim missing items when validate_required_documents reports none, (b) does not claim approval or vendor email sent, (c) draft_internal_ticket.severity (when present) matches the highest severity in policy_flags",
+    "max_per_case": 6
   },
   "cases": [
     {

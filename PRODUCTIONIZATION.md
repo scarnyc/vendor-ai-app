@@ -166,6 +166,32 @@ thinking is where the accuracy lift came from — losing it to save
 latency is a regression on the harder dimension. The streaming +
 tiering moves above keep the model and shrink the experienced wait.
 
+## Faithfulness audit
+
+The agent emits four free-form fields that the deterministic tools can't pin
+down: `intake_summary`, `policy_flags[].issue`, `draft_internal_ticket`, and
+`rationale`. Each is a drift surface — the LLM can hallucinate a number, a
+recipient, or a policy quote that the tool audit trail doesn't support.
+
+`validate_citations` is the existing post-validation layer, and it catches the
+one that matters most: every `PolicyCitation.quote` is substring-checked
+against the cited policy file before the human gate. The canonical worked
+example is case_003's `"opt-out"` citation. The policy section actually reads
+"Company, customer, and employee data may not be used for vendor model
+training... unless explicitly approved by Legal, Security, and an executive
+sponsor." The substring `"opt-out"` is not in that text, so
+`validate_citations` correctly marks the citation unverified and the
+CitationChip renders ⚠ — the designed behavior, not a regression.
+
+The next-step automated check is T2.1's `rationale_faithfulness` rubric — a
+6th eval-bench check covering three sub-checks the structural rubric can't
+see: missing-items contradiction (recommendation prose claims "all docs
+present" while `validate_required_documents` reports gaps),
+hard-product-line violation (recommendation prose drifts toward approval/send
+language the schema can't express), and ticket-severity vs.
+`policy_flags`-max disagreement (the draft ticket downgrades severity
+relative to the highest `policy_flag.severity`).
+
 ## What I'd build first
 
 If this prototype landed in a real codebase Monday morning, my week-1 priorities
@@ -191,6 +217,38 @@ in order:
    deliver. Productionizing it means a real Q&A surface backed by the LangGraph
    policy-RAG path plus a slash-command router; ship only once procurement
    owners ask for it (the Run button + case tabs already cover the demo flow).
+7. **Operator "Edit" affordance — deferred.** Today the operator binds to one
+   of three terminal actions (Approve / Reject / Escalate). Edit restores the
+   ability for the operator to override fields the agent computed but the
+   operator has out-of-band context for: risk tier misclassified (operator
+   knows data scope is narrower than the agent inferred from the SQ); approver
+   list missing a stakeholder; vendor draft email needs a sentence the agent
+   didn't produce. Scope when picked up: a fourth "Edit & re-derive" button
+   that opens an inline edit drawer on the operator card; risk-tier override
+   re-runs the policy-flag + approver derivation (LangGraph re-entry from
+   `classify_data_sensitivity`); approver-list additions and vendor-draft
+   edits ship as-is with the decision (no re-run) — preserves the agent's
+   audit trail; edits logged into the `human_decision` payload alongside the
+   verdict so the audit trail captures what the human changed.
+8. **Recipient-lens preview views — deferred.** Today the workbench shows only
+   the procurement owner's view. The agent already computes everything the 6
+   downstream recipients (Legal, Security/Privacy, CFO, VP Finance,
+   Procurement Manager, Business Owner) each need, but the UI doesn't surface
+   those filtered views. Preview views let the operator confirm, before
+   sending, what each recipient will see and which fields are highlighted for
+   their role. Scope when picked up: restore the `LENSES` fixture in
+   `src/lib/personas.ts` with the 6 recipient entries; re-mount `PersonaRail`
+   as a 7-tile switcher (operator + 6 recipients); each recipient lens renders
+   `DecisionPacketCard` in readonly mode with a role-specific field filter
+   (e.g., CFO sees ACV breakdown + budget fit; Legal sees DPA/BAA-relevant
+   flags + contract redlines). Hooks-bug guard when this comes back:
+   `ConfirmationCard`'s hook order must be preserved correctly —
+   `useCallback(submit)` + `useEffect(keyboard shortcuts)` must remain *above*
+   both early returns, with their bodies guarded internally via
+   `if (!operator || packet.human_decision) return`. This is the canonical
+   React fix for "Rendered fewer hooks than expected": hooks at top of
+   function, conditional behavior inside hook bodies. The current
+   `ConfirmationCard` already follows this pattern.
 
 What I'd resist building first, even if asked: a vendor-facing portal, a
 multi-step approval routing engine, a mobile UI. All of those are downstream of

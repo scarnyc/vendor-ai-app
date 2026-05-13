@@ -112,9 +112,9 @@ builder.addEdge('extract_candidate_clauses', 'prepare_decision_packet');
 builder.addEdge('prepare_decision_packet', 'validate_citations');
 builder.addEdge('validate_citations', 'human_approval');
 
-// HITL → either loop back into classification OR emit final.
+// HITL → emit final. Edit-and-re-run loop-back is deferred (see
+// PRODUCTIONIZATION.md "Operator 'Edit' affordance — deferred").
 builder.addConditionalEdges('human_approval', postHumanRouter, {
-  classify_data_sensitivity: 'classify_data_sensitivity',
   emit_final: 'emit_final',
 });
 
