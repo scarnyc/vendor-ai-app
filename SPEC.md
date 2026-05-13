@@ -1,6 +1,6 @@
 # Vendor Onboarding Triage Agent — Product Spec
 
-> **Status:** v1 draft for take-home prototype.
+> **Status:** v1 draft for prototype.
 > **Owner:** Procurement Ops (PM-facing).
 > **Audience:** Engineering + Procurement + Security/Legal reviewers.
 > **Out of scope for v1:** Production rollout — covered separately in [PRODUCTIONIZATION.md](./PRODUCTIONIZATION.md).
@@ -60,14 +60,14 @@ missed flag becomes Legal's problem six weeks later.
   sends. *Rationale:* one unauthorized email to a vendor can break a
   negotiation; the upside of full automation here is small.
 - **N3 — No vendor self-service portal, no chat interface.** Single-user
-  workbench only. *Rationale:* widening the surface for a take-home dilutes the
+  workbench only. *Rationale:* widening the surface for a prototype dilutes the
   core demonstration; vendor-facing flows are a separate product surface.
 - **N4 — No persistent state across sessions in v1.** Each case run is
   independent; audit log is in-memory + downloadable. *Rationale:* persistence
   needs auth, RBAC, and WORM semantics — see [PRODUCTIONIZATION.md](./PRODUCTIONIZATION.md).
 - **N5 — No real Salesforce / Workday / NetSuite / HRIS / Slack integrations.**
   `lookup_budget` reads `tools/budget_lookup.csv`; `check_existing_vendor`
-  reads `tools/vendor_register.csv`. *Rationale:* the take-home is graded on
+  reads `tools/vendor_register.csv`. *Rationale:* the prototype is evaluated on
   judgment + architecture, not on connector plumbing. Adapter pattern keeps the
   swap to production cheap.
 - **N6 — No auth / RBAC on the demo URL.** *Rationale:* cases are synthetic;
@@ -104,9 +104,9 @@ actions she didn't approve.
   decision packet as JSON, so I can attach it to the ticket in our system of
   record.
 
-### Secondary persona — Take-Home Reviewer ("Sam")
+### Secondary persona — Prototype Reviewer ("Sam")
 
-Accelerant engineer evaluating the prototype. Has ~10 minutes per candidate.
+Engineer evaluating the prototype. Has ~10 minutes per candidate.
 Wants to see judgment, architecture, and that the brief was read carefully.
 Does *not* want to install anything.
 
@@ -223,7 +223,7 @@ local setup required.
 
 ## 6. Success Metrics
 
-### Leading indicators (this take-home — measurable now)
+### Leading indicators (this prototype — measurable now)
 
 | Metric | Target | Measurement |
 |---|---|---|
@@ -263,13 +263,13 @@ No blocking questions for v1.
 
 ## 8. Timeline & Phasing
 
-- **v1 (this take-home, ~4 hours target / 6 hours ceiling):** Ship P0
+- **v1 (this prototype, ~4 hours target / 6 hours ceiling):** Ship P0
   requirements R1–R9 to a public URL. All three cases produce
   policy-aligned verdicts; reviewer can run end-to-end in the browser; docs
   explain decisions.
-- **v1.1 (stretch within take-home if time):** P1 requirements R10–R13
+- **v1.1 (stretch if time):** P1 requirements R10–R13
   — LangSmith tracing, "why this verdict" panel, JSON download, eval harness.
-- **v2+ (post-hire, productionization):** P2 requirements R14–R19. Spec
+- **v2+ (productionization):** P2 requirements R14–R19. Spec
   lives in [PRODUCTIONIZATION.md](./PRODUCTIONIZATION.md) (separate doc).
 
 No hard external deadlines. The "demonstration must be reproducible from a URL"

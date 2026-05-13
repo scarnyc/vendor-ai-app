@@ -1,6 +1,6 @@
 # Vendor AI — Claude Code Working Notes
 
-Take-home: a vendor onboarding triage agent. Reads a case package, evaluates
+Prototype: a vendor onboarding triage agent. Reads a case package, evaluates
 against seven internal policies, emits a `DecisionPacket` for one human
 (Priya, the procurement owner) to review, edit, approve, or reject.
 
@@ -54,7 +54,7 @@ mock/                    — static HTML mocks (visual + state-graph reference)
 `determine_required_approvals` · `draft_vendor_followup` ·
 `escalate_to_human`
 
-Names are load-bearing — the take-home rubric checks for these exact
+Names are load-bearing — the rubric checks for these exact
 names. Don't rename, don't merge, don't omit. Tool I/O contracts are in
 `mock/architecture.html` (tool catalog table).
 
