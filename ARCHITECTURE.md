@@ -31,37 +31,43 @@ run_deterministic_tools                    escalate_to_human ──► END
   │  (lookup_budget, check_existing_vendor,
   │   calculate_total_contract_value)
   ▼
-classify_data_sensitivity ◄────────┐
-  │                                │
-  ▼                                │ edit_and_rerun
-determine_required_approvals       │ (carries operator edits as forwardedProps;
-  │                                │  deterministic tool outputs are cached
-  ▼                                │  in state and not recomputed)
-extract_candidate_clauses          │
+classify_data_sensitivity
+  │
+  ▼
+determine_required_approvals
+  │
+  ▼
+extract_candidate_clauses
   │  (heuristic clause indexer — keyword-density-ranked
   │   policy lines fed into the LLM's user message so it
   │   can quote verbatim; ≥99% verified citations target)
-  ▼                                │
-prepare_decision_packet            │
-  │                                │
-  ▼                                │
-validate_citations                 │
-  │                                │
-  ▼                                │
-human_approval ──┬─────────────────┘
-                 │
-                 │ approve · reject · request_followup
-                 ▼
-              emit_final ──► END
+  ▼
+prepare_decision_packet
+  │
+  ▼
+validate_citations
+  │
+  ▼
+human_approval
+  │
+  │ approved · rejected · escalated
+  ▼
+emit_final ──► END
 ```
 
-Two structural changes vs. the spec's original PNG (DESIGN §16.7):
+One structural change vs. the spec's original PNG (DESIGN §16.7):
+
 1. **`await_run` initial state** — the operator's Run button issues
    `Command({ resume: "run" })` to get past it. This stops the graph from
    auto-running on every cold-start of a fresh thread.
-2. **Edit-and-re-run loop edge** from `human_approval` back to
-   `classify_data_sensitivity`. Re-runs only the LLM-driven downstream nodes;
-   deterministic tool results stay memoized in state.
+
+An edit-and-re-run loop-back from `human_approval` to
+`classify_data_sensitivity` was scoped but deferred — `postHumanRouter`
+currently always routes to `emit_final`. The operator's "Edit & re-run"
+affordance is tracked in `PRODUCTIONIZATION.md` ("Operator 'Edit'
+affordance — deferred"). The schema reserves no state for it; if/when
+it lands it will re-run only the LLM-driven downstream nodes and reuse
+the cached deterministic tool outputs.
 
 `validate_citations` runs after packet assembly and before the human gate. It
 substring-checks every `PolicyCitation.quote` against the cited policy file.
@@ -94,8 +100,8 @@ Vercel cold-start within a single warm container.
   recommended action (`approve_with_followup` | `escalate` | `block`),
   optional vendor draft (clearly DRAFT), internal ticket draft, audit trail of
   tool calls, optional `human_decision` (set after HITL).
-- **`HumanDecision`** — `verdict` (approved | rejected | edit_and_rerun |
-  request_followup), notes, decided_at/by, optional `edits_applied`.
+- **`HumanDecision`** — `verdict` (approved | rejected | escalated), notes,
+  decided_at/by, optional `edits_applied`.
 
 The schema deliberately has **no field that can express "approved by the
 agent"** or **"sent to vendor"**. Approval lives only on `human_decision`,
@@ -104,21 +110,24 @@ resume value). Vendor email is always `draft_vendor_email`, never "sent_email".
 
 ## Frontend
 
-The workbench is one page, four logical zones:
+The workbench is one page, three logical zones:
 
-1. **Persona rail** (240px left) — operator (Procurement) + 6 read-only
-   recipient lenses. Switching to a recipient filters `policy_flags` by
-   `recipient` and hides the operator-only ConfirmationCard buttons.
-2. **Canvas header + case tabs** — case_001 / case_002 / case_003 pills drive
-   `?case=00N` deep links and per-case state via React state keyed by case_id.
-3. **Canvas body** — streams as the agent runs:
-   PlanList → ToolAuditCard stack → DecisionPacketCard → ConfirmationCard.
-4. **Ambient prompt pill** — small input at canvas bottom for `/run case_xxx`
-   slash commands.
+1. **Canvas header** — vendor name, ACV, run status, provider chip.
+2. **Case tabs** — case_001 / case_002 / case_003 pills drive `?case=00N`
+   deep links and per-case state via React state keyed by case_id.
+3. **Canvas body** — streams top-down as the agent runs: PlanList →
+   ToolAuditCard stack → DecisionPacketCard (the artifact) →
+   ConfirmationCard (HITL inline, operator-only).
 
 `Workbench.tsx` is the only stateful component. Children are pure presentational
 (props in, callbacks out). `useEffect` runs one GET per case per session to
 restore previously-decided state when switching tabs.
+
+The earlier persona-rail design (operator + 6 read-only recipient lenses)
+and ambient prompt pill (bottom-of-canvas slash-command input) were both
+removed before the v0.10 cycle — they added surface area without changing
+the operator's decision path. The single operator is Procurement; the
+canvas IS the artifact view.
 
 ## HITL pattern
 
@@ -134,37 +143,51 @@ const verdict = interrupt({
 
 `interrupt()` pauses the graph; the next `graph.invoke(new Command({ resume: X }))`
 returns `X` as the value of that call. `/api/resume` accepts the operator's
-verdict, casts it to `HumanDecision`, and routes via `postHumanRouter` to
-either `classify_data_sensitivity` (edit_and_rerun) or `emit_final` (every other
-verdict). One small idempotency wart: `/api/run` checks `(existing.next ?? []).length > 0`
-and no-ops on re-POST so a stray `/run case_xxx` doesn't inject `'run'` into an
-already-active interrupt.
+verdict, casts it to `HumanDecision`, and the graph routes via `postHumanRouter`
+to `emit_final` — the router is a constant returner today; all three verdicts
+(`approved`, `rejected`, `escalated`) terminate at `emit_final` (see
+`nodes.ts:postHumanRouter` and the `addConditionalEdges('human_approval', …)`
+binding in `graph.ts`). The edit-and-re-run loop-back back through
+`classify_data_sensitivity` is documented as deferred (`PRODUCTIONIZATION.md`
+"Operator 'Edit' affordance — deferred"). One small idempotency wart:
+`/api/run` checks `(existing.next ?? []).length > 0` and no-ops on re-POST so a
+stray `/run case_xxx` doesn't inject `'run'` into an already-active interrupt.
 
 ## LLM provider switch
 
-`activeProvider()` reads `LLM_PROVIDER`. Four modes:
+`activeProvider()` reads `LLM_PROVIDER`. Five modes:
 
 - **`mock`** — graph nodes branch on `activeProvider() === 'mock'` and pull
   responses from `mocks.ts` keyed by `case_id`. No network, deterministic,
-  free. Used for dev/CI/PRs.
-- **`deepseek`** *(recommended for production demo)* — DeepSeek primary
-  (`https://api.deepseek.com`, `deepseek-chat` default), wrapped in
-  `Runnable.withFallbacks()` against an OpenRouter client when
-  `OPENROUTER_API_KEY` is also set. The fallback fires automatically on any
-  primary error (rate-limit, 5xx, timeout) — single demo URL keeps working
-  through DeepSeek hiccups.
-- **`deepseek-direct`** — DeepSeek only, no fallback. Useful when you want to
-  fail loudly instead of silently switching to a free-tier model.
+  free. Used for dev/CI/PRs. Default when `LLM_PROVIDER` is unset.
+- **`anthropic`** *(recommended for production demo)* — Anthropic Claude
+  Sonnet 4.6 with adaptive extended thinking via native Structured Outputs
+  (`withStructuredOutput(schema, { method: 'jsonSchema' })`). When
+  `DEEPSEEK_API_KEY` is also set, a hand-rolled `composeWithFallback` wraps
+  the primary against a DeepSeek backup — catches Anthropic rate-limits,
+  spend-cap 429s, or transient 5xx without changing config.
+- **`anthropic-only`** — Anthropic, no fallback. Used by `pnpm eval:dataset`
+  so eval failures surface as eval failures, not silently masked by a
+  weaker fallback.
+- **`deepseek-only`** — DeepSeek only, no fallback (`deepseek-chat`
+  default, `https://api.deepseek.com`). Cost lane; legacy aliases
+  `deepseek` and `deepseek-direct` map here.
 - **`openrouter`** — `ChatOpenAI` pointed at `https://openrouter.ai/api/v1`
   with `:free` models by default (`deepseek/deepseek-chat:free`, override via
-  `OPENROUTER_MODEL`). Free, but rate-limited under load and subject to the
-  Vercel 10s function timeout on cold queues.
+  `OPENROUTER_MODEL`). Keyless escape hatch — rate-limited under load and
+  subject to the Vercel 10s function timeout on cold queues.
+
+The Anthropic→DeepSeek composer (`composeWithFallback` in `llm.ts`) catches
+both transport errors and `LlmStructuredOutputError` (a Zod-refinement
+failure on the grammar-constrained output) and emits a structured
+`llm.fallback.fired` JSON log so the signal is queryable in LangSmith /
+Vercel log aggregation.
 
 Caller-side responsibility: `MockChatModel.invoke()` throws loudly so any node
 that forgets to short-circuit on mock mode fails fast instead of silently
 hitting the network.
 
-The single LLM call site is `runLlmComposition` in `nodes.ts:524` — it
+The single LLM call site is `runLlmComposition` in `nodes.ts:777` — it
 composes the five narrative fields of the `DecisionPacket` (intake summary,
 policy flags with citations, recommended action, draft internal ticket,
 vendor follow-up draft) from the deterministic facts the tools already

@@ -270,9 +270,20 @@ function composeWithFallback<T>(
       try {
         return await primary.invoke(input);
       } catch (e) {
-        const reason = e instanceof Error ? e.message : String(e);
-        const kind = e instanceof LlmStructuredOutputError ? 'parse' : 'transport';
-        console.warn(`[llm] anthropic ${kind} failure → deepseek fallback firing: ${reason}`);
+        // Structured JSON payload so LangSmith trace ingest / Vercel log
+        // aggregation can parse the fallback signal without regex on a string.
+        console.warn(
+          JSON.stringify({
+            event: 'llm.fallback.fired',
+            primary: 'anthropic',
+            fallback: 'deepseek',
+            error_class:
+              (e as { constructor?: { name?: string } } | null)?.constructor?.name ?? 'Unknown',
+            error_kind: e instanceof LlmStructuredOutputError ? 'parse' : 'transport',
+            error_message: e instanceof Error ? e.message : String(e),
+            timestamp: new Date().toISOString(),
+          })
+        );
         return await fallback.invoke(input);
       }
     },

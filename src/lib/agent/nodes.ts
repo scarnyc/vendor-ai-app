@@ -29,7 +29,8 @@ import {
   type RiskTier,
   type VendorFollowupDraft,
   DecisionPacketSchema,
-  PolicyFlagSchema,
+  LlmPolicyFlagSchema,
+  unverifiedCitation,
 } from './schemas';
 
 /**
@@ -57,7 +58,7 @@ const LlmCompositionSchema = z.object({
         'reading the intake docs.'
     ),
   policy_flags: z
-    .array(PolicyFlagSchema)
+    .array(LlmPolicyFlagSchema)
     .min(1)
     .max(8)
     .describe(
@@ -360,12 +361,33 @@ export async function prepareDecisionPacketNode(state: AgentState): Promise<Stat
   const provider = activeProvider();
   let llmOut: LlmComposition;
   let llmFailed = false;
+  let llmFailureReason: string | null = null;
 
   // Item 12 scaffold notification (default off — single-shot continues to run).
   noteThreeStepDormantIfActive();
 
   if (provider === 'mock') {
-    llmOut = getMockOutput(state.case_id) as LlmComposition;
+    const mock = getMockOutput(state.case_id);
+    // Mock fixtures pre-date the schema split — strip the runtime-only
+    // `verified` field off citations so the shape matches LlmPolicyFlag, and
+    // synthesize a rationale (mocks don't carry one).
+    llmOut = {
+      intake_summary: mock.intake_summary,
+      policy_flags: mock.policy_flags.map((f) => ({
+        severity: f.severity,
+        issue: f.issue,
+        recipient: f.recipient,
+        citations: f.citations.map((c) => ({
+          policy_doc: c.policy_doc,
+          section: c.section,
+          quote: c.quote,
+        })),
+      })),
+      recommended_action: mock.recommended_action,
+      draft_internal_ticket: mock.draft_internal_ticket,
+      vendor_followup_body_lines: mock.vendor_followup_body_lines,
+      rationale: 'Mock fixture — deterministic output for dev/CI; rationale not synthesized.',
+    };
   } else {
     try {
       const initial = await runLlmComposition(state);
@@ -401,10 +423,23 @@ export async function prepareDecisionPacketNode(state: AgentState): Promise<Stat
       console.error('[prepare_decision_packet] LLM composition failed:', err);
       llmOut = buildLlmCompositionFallback(state, err);
       llmFailed = true;
+      llmFailureReason =
+        err instanceof Error
+          ? `${err.name}: ${err.message}`
+          : `LLM composition failed: ${String(err).slice(0, 200)}`;
     }
   }
 
-  const riskTier = computeRiskTier(state, llmOut.policy_flags);
+  // Promote each LLM-emitted flag to a runtime PolicyFlag by wrapping its
+  // citations through unverifiedCitation(). The LLM JSON schema has no
+  // `verified` field; validateCitationsNode is the only writer that flips
+  // verified→true after a verbatim substring check against the policy doc.
+  const runtimeFlags: PolicyFlag[] = llmOut.policy_flags.map((f) => ({
+    ...f,
+    citations: f.citations.map(unverifiedCitation),
+  }));
+
+  const riskTier = computeRiskTier(state, runtimeFlags);
   const draftEmail = buildDraftEmail(state, llmOut);
 
   const packet: DecisionPacket = {
@@ -417,7 +452,7 @@ export async function prepareDecisionPacketNode(state: AgentState): Promise<Stat
     budget: state.budget!,
     tcv: state.tcv!,
     duplicate_vendor: state.duplicate_vendor!,
-    policy_flags: llmOut.policy_flags,
+    policy_flags: runtimeFlags,
     required_approvers: state.required_approvals!.approvers,
     recommended_action: llmOut.recommended_action,
     draft_vendor_email: draftEmail,
@@ -426,6 +461,8 @@ export async function prepareDecisionPacketNode(state: AgentState): Promise<Stat
     human_decision: null,
     generated_at: new Date().toISOString(),
     rationale: llmOut.rationale,
+    degraded_mode: llmFailed,
+    ...(llmFailed && llmFailureReason ? { degraded_reason: llmFailureReason } : {}),
   };
 
   // Belt-and-suspenders: validate the assembled packet against the schema.
@@ -443,7 +480,7 @@ export async function prepareDecisionPacketNode(state: AgentState): Promise<Stat
 
   return {
     decision_packet: parsed.data,
-    policy_flags: llmOut.policy_flags,
+    policy_flags: runtimeFlags,
     current_node: 'prepare_decision_packet',
     ...(llmFailed ? { run_status: 'escalated' as const } : {}),
   };
@@ -463,7 +500,13 @@ export async function prepareDecisionPacketNode(state: AgentState): Promise<Stat
  * The tool record still reports verified/unverified counts so the audit
  * trail keeps the diagnostic for LangSmith / operator inspection. */
 export async function validateCitationsNode(state: AgentState): Promise<StateUpdate> {
-  if (!state.decision_packet) return {};
+  if (!state.decision_packet) {
+    console.error('[validate_citations] reached with no decision_packet — graph wiring bug');
+    return {
+      run_status: 'escalated',
+      error: 'validate_citations reached with no decision_packet (graph wiring bug)',
+    };
+  }
   const allCitations = state.decision_packet.policy_flags.flatMap((f) => f.citations);
   const startedAt = Date.now();
   const { unverified } = await validateCitations(allCitations);
@@ -592,7 +635,10 @@ function coerceMoney(v: unknown): number {
   return Number.isFinite(n) ? n : 0;
 }
 
-function computeRiskTier(state: AgentState, flags: PolicyFlag[]): RiskTier {
+function computeRiskTier(
+  state: AgentState,
+  flags: ReadonlyArray<{ severity: 'info' | 'warn' | 'block' }>
+): RiskTier {
   const dataClass = state.data_sensitivity?.data_class;
   if (flags.some((f) => f.severity === 'block') || dataClass === 'restricted') return 'high';
   if (
@@ -718,6 +764,8 @@ function assembleEscalationPacket(
     tools_called: state.tools_called,
     human_decision: null,
     generated_at: new Date().toISOString(),
+    degraded_mode: true,
+    degraded_reason: 'Intake incomplete — deterministic-only escalation path (no LLM composition).',
   };
 }
 
@@ -805,7 +853,6 @@ function buildLlmCompositionFallback(
             section: 'system_fallback',
             quote:
               'Decision routed to operator after automated composition failure.',
-            verified: false,
           },
         ],
       },

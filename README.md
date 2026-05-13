@@ -14,8 +14,10 @@ owner to approve, edit, or reject. Built for the Accelerant Tech PM exercise.
    validate every policy citation → **stop at a human approval gate**.
 3. Surfaces the packet in a canvas-first workbench (no chat feed). The procurement
    owner can edit risk tier, add an approver, edit the vendor draft, then choose
-   **Approve**, **Edit & re-run** (loops back through classification with their
-   edits), or **Reject + escalate**.
+   one of three verdicts: **Approve**, **Reject**, or **Escalate**. (An
+   "Edit & re-run" loop-back from the human gate back through classification
+   was scoped but deferred — `postHumanRouter` always routes to `emit_final`
+   today; see [`PRODUCTIONIZATION.md`](./PRODUCTIONIZATION.md).)
 
 The agent **never** approves spend, sends external messages, accepts contract
 language, or makes the final security/privacy decision. These constraints are
@@ -48,21 +50,23 @@ echo 'LLM_PROVIDER=anthropic'        >> .env.local
 pnpm dev
 ```
 
-Other modes: `LLM_PROVIDER=anthropic-only` (Anthropic, no fallback — used by
-`pnpm eval:dataset`), `LLM_PROVIDER=deepseek` (DeepSeek primary with OpenRouter
-fallback, legacy), `LLM_PROVIDER=deepseek-direct`, `LLM_PROVIDER=openrouter`.
-Defaults: `claude-sonnet-4-5-20250929` (Anthropic), `deepseek-chat` (DeepSeek),
+Five modes. `LLM_PROVIDER=anthropic` (recommended; Anthropic primary, DeepSeek
+fallback when the key is present), `LLM_PROVIDER=anthropic-only` (no fallback —
+used by `pnpm eval:dataset`), `LLM_PROVIDER=deepseek-only` (cost lane; legacy
+aliases `deepseek` / `deepseek-direct` map here), `LLM_PROVIDER=openrouter`
+(keyless `:free` escape hatch), `LLM_PROVIDER=mock` (deterministic fixtures).
+Defaults: `claude-sonnet-4-6` (Anthropic), `deepseek-chat` (DeepSeek),
 `deepseek/deepseek-chat:free` (OpenRouter); override with `ANTHROPIC_MODEL` /
 `DEEPSEEK_MODEL` / `OPENROUTER_MODEL`.
 
 | Env var | Default | Purpose |
 |---|---|---|
-| `LLM_PROVIDER` | `mock` | `anthropic` \| `anthropic-only` \| `deepseek` \| `deepseek-direct` \| `openrouter` \| `mock` |
+| `LLM_PROVIDER` | `mock` | `anthropic` \| `anthropic-only` \| `deepseek-only` \| `openrouter` \| `mock` |
 | `ANTHROPIC_API_KEY` | — | Required for `anthropic`/`anthropic-only` |
-| `ANTHROPIC_MODEL` | `claude-sonnet-4-5-20250929` | Override Anthropic model id |
+| `ANTHROPIC_MODEL` | `claude-sonnet-4-6` | Override Anthropic model id |
 | `ANTHROPIC_EFFORT` | `medium` | Thinking effort: `low` \| `medium` \| `high` (applied when thinking is enabled) |
 | `ANTHROPIC_THINKING_BUDGET` | (model default) | Override the thinking-token budget if a single case stalls |
-| `DEEPSEEK_API_KEY` | — | **Required** for production deploys — composeWithFallback routes here when Anthropic 429s or hits the spend cap. Also required for `deepseek` / `deepseek-direct` modes. |
+| `DEEPSEEK_API_KEY` | — | **Required** for production deploys — composeWithFallback routes here when Anthropic 429s or hits the spend cap. Also required for `deepseek-only` mode. |
 | `LLM_PIPELINE_MODE` | `single` | `single` (one structured call) or `3step` (decompose; experimental, default off) |
 | `LLM_DEBUG_BINDING` | unset | When `=1`, logs the wire-format binding payload once on each LLM call — verify `thinking` + `output_config.format.type === 'json_schema'` both present |
 
@@ -79,11 +83,10 @@ src/
     api/run/[case]/route.ts     # POST: seed + invoke; GET: snapshot
     api/resume/route.ts         # POST: Command(resume=HumanDecision)
     api/policy/[doc]/route.ts   # GET: raw policy text for the drawer
-  components/                   # 11 presentational React components
+  components/                   # presentational React components
     Workbench.tsx               # the only stateful component
-    PersonaRail.tsx             # operator + 6 recipient lenses
     CaseTabs.tsx                # case_001 | case_002 | case_003
-    CanvasHeader.tsx            # case + run_status + lens chip
+    CanvasHeader.tsx            # vendor + ACV + run_status + provider chip
     PlanList.tsx                # streaming PNG-node progress
     ToolAuditCard.tsx           # humanized tool call cards (no JSON)
     DecisionPacketCard.tsx      # the centerpiece artifact
@@ -99,7 +102,7 @@ src/
       schemas.ts                # Zod (one-to-one with the spec's Pydantic shapes)
       policies.ts               # loads docs/*.md into prompts + drawer
       prompts.ts                # system prompt with hard product lines
-      llm.ts                    # 3-mode provider switch
+      llm.ts                    # 5-mode provider switch + Anthropic→DeepSeek fallback composer
       mocks.ts                  # deterministic fixtures keyed by case_id
     cases.ts                    # case metadata + IDs
     personas.ts                 # operator/recipient lens definitions

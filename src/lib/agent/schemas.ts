@@ -15,13 +15,53 @@ export const POLICY_DOCS = [
 export const PolicyDocSchema = z.enum(POLICY_DOCS);
 export type PolicyDoc = z.infer<typeof PolicyDocSchema>;
 
-export const PolicyCitationSchema = z.object({
+/**
+ * LLM-facing citation shape. Intentionally has NO `verified` field — the LLM
+ * cannot mint a verified citation by emitting `verified: true` in its
+ * structured-output JSON. `validateCitations` (policies.ts) is the only call
+ * site that promotes an LlmPolicyCitation to a runtime PolicyCitation with
+ * `verified: true`. This is the §9 "no hallucinated quotes" enforcement at
+ * the type-system level.
+ */
+export const LlmPolicyCitationSchema = z.object({
   policy_doc: PolicyDocSchema,
   section: z.string().min(1),
   quote: z.string().min(1).max(500),
-  verified: z.boolean().default(false),
+});
+export type LlmPolicyCitation = z.infer<typeof LlmPolicyCitationSchema>;
+
+/**
+ * Runtime citation shape — includes the `verified` boolean. The factory
+ * `unverifiedCitation()` is the only sanctioned constructor from an
+ * LLM-emitted citation; `validateCitations` is the only writer that flips
+ * `verified` to true.
+ */
+export const PolicyCitationSchema = LlmPolicyCitationSchema.extend({
+  verified: z.boolean(),
 });
 export type PolicyCitation = z.infer<typeof PolicyCitationSchema>;
+
+export function unverifiedCitation(c: LlmPolicyCitation): PolicyCitation {
+  return { ...c, verified: false };
+}
+
+/* LLM-facing flag — uses LlmPolicyCitationSchema so the LLM can't forge a
+ * verified citation in structured output. */
+export const LlmPolicyFlagSchema = z.object({
+  severity: z.enum(['info', 'warn', 'block']),
+  issue: z.string().min(1),
+  recipient: z.enum([
+    'business_owner',
+    'procurement_manager',
+    'vp_finance',
+    'cfo',
+    'executive_sponsor',
+    'legal',
+    'security',
+  ]),
+  citations: z.array(LlmPolicyCitationSchema).min(1),
+});
+export type LlmPolicyFlag = z.infer<typeof LlmPolicyFlagSchema>;
 
 export const PolicyFlagSchema = z.object({
   severity: z
@@ -137,7 +177,8 @@ export type RequiredApprover = z.infer<typeof RequiredApproverSchema>;
 
 export const RequiredApprovalsSchema = z.object({
   approvers: z.array(RequiredApproverSchema),
-  rationale_per_approver: z.record(RequiredApproverSchema, z.string()),
+  // partialRecord: only triggered approvers have rationales; non-triggered keys are absent.
+  rationale_per_approver: z.partialRecord(RequiredApproverSchema, z.string()),
 });
 export type RequiredApprovals = z.infer<typeof RequiredApprovalsSchema>;
 
@@ -182,6 +223,29 @@ export type ToolCallRecord = z.infer<typeof ToolCallRecordSchema>;
 
 /* ─── Human-in-the-loop verdict (set ONLY after operator click) ─────────── */
 
+/**
+ * SPEC §9 enforcement model — read this before changing the verdict enum.
+ *
+ * §9 forbids the AGENT from approving spend, NOT the operator. The operator's
+ * 'approved' verdict here is the entire purpose of the HITL gate. The §9
+ * line is held by these structural protections, not the field name:
+ *
+ *   1. `HumanDecision` is only written by `humanApprovalNode` (nodes.ts),
+ *      which consumes the value returned by LangGraph's `interrupt()` call.
+ *      The interrupt resume comes from `/api/resume` (route.ts), which Zod-
+ *      parses the body against `HumanDecisionSchema` before invoking the
+ *      graph with `Command({ resume: decision })`.
+ *   2. The LLM has no tool that returns a `HumanDecision`; the agent cannot
+ *      forge an "approved by the operator" record because no LLM call site
+ *      writes to this field.
+ *   3. The graph entry state is `await_run` — the agent does not auto-run.
+ *      The operator's Run button is the first §9 gate; the Approve button
+ *      is the second.
+ *
+ * If you ever add a new code path that writes `human_decision`, it must
+ * originate from a Command-resume sourced through `/api/resume`. Anything
+ * else is a §9 violation.
+ */
 export const HumanDecisionSchema = z.object({
   // T1.4: Three-button operator model.
   // - approved: vendor submitted everything; no blockers, no executive approval needed.
@@ -232,6 +296,12 @@ export const DecisionPacketSchema = z.object({
   // because deterministic-only paths (assembleEscalationPacket, mock outputs)
   // don't have an LLM-emitted rationale.
   rationale: z.string().max(1200).optional(),
+  // Set true when the packet was assembled from the deterministic-only
+  // fallback (LLM composition failed or schema parse rejected the LLM JSON).
+  // Surfaced in the UI so the operator can tell a degraded packet from a
+  // full LLM run without reading logs. Defaults to false for normal runs.
+  degraded_mode: z.boolean().default(false),
+  degraded_reason: z.string().nullable().optional(),
 });
 export type DecisionPacket = z.infer<typeof DecisionPacketSchema>;
 

@@ -49,8 +49,13 @@ export async function validateRequiredDocuments(caseId: string): Promise<Documen
     try {
       await fs.access(filePath);
       (inventory as Record<string, unknown>)[key] = true;
-    } catch {
-      inventory.missing.push(key);
+    } catch (err) {
+      if (err && typeof err === 'object' && 'code' in err && (err as NodeJS.ErrnoException).code === 'ENOENT') {
+        inventory.missing.push(key);
+      } else {
+        const code = (err as NodeJS.ErrnoException)?.code ?? 'unknown';
+        throw new Error(`unexpected fs error reading ${filePath}: ${code}`);
+      }
     }
   }
 
@@ -229,10 +234,9 @@ async function loadVendors(): Promise<VendorRow[]> {
 
 export async function checkExistingVendor(vendorName: string): Promise<DuplicateCheckResult> {
   const rows = await loadVendors();
+  const normalized = vendorName?.toLowerCase().trim() ?? '';
   const exact = rows.find(
-    (r) =>
-      r.vendor_name?.toLowerCase().trim() === vendorName?.toLowerCase().trim() ||
-      r.vendor_name?.toLowerCase().includes(vendorName?.toLowerCase().trim() ?? '')
+    (r) => r.vendor_name?.toLowerCase().trim() === normalized
   );
   if (exact) {
     return {
