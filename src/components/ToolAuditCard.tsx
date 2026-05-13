@@ -112,7 +112,7 @@ function rowsForValidateDocs(record: ToolCallRecord, packet: DecisionPacket | nu
   const verdict = missing.length === 0
     ? {
         text:
-          'All required case-folder documents present (intake form, vendor email, quote, security questionnaire, contract).',
+          'All 5 case-folder files received (intake form, vendor email, quote, security questionnaire, contract). Field-level completeness checked separately by policy flags.',
         emphasis: 'ok' as const,
       }
     : missing.length <= 2
