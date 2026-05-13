@@ -71,18 +71,76 @@ export function Workbench() {
     async (id: CaseId) => {
       setBusy(true);
       setError(null);
-      try {
-        const res = await fetch(`/api/run/${id}`, { method: 'POST' });
+
+      // The graph can take ~140s for case_003. The POST holds open the whole
+      // time with no bytes sent, so any idle proxy between the function and
+      // the browser (Vercel edge, ISP, mobile/airport WiFi) can drop the
+      // connection. The function survives (maxDuration=300) and writes the
+      // final state into MemorySaver. We race the POST against a delayed GET
+      // poll so a wedged connection can't stall the UI.
+      const POLL_DELAY_MS = 30_000;
+      const POLL_INTERVAL_MS = 3_000;
+      const POLL_BUDGET_MS = 270_000;
+      const controller = new AbortController();
+
+      const isComplete = (data: RunResponse) => {
+        const status = data.state?.run_status;
+        return Boolean(
+          data.state?.decision_packet &&
+            (status === 'awaiting_human' ||
+              status === 'decided' ||
+              status === 'escalated')
+        );
+      };
+
+      const postPromise = (async () => {
+        const res = await fetch(`/api/run/${id}`, {
+          method: 'POST',
+          signal: controller.signal,
+        });
         if (!res.ok) {
           const body = await res.json().catch(() => ({}));
           throw new Error(body.error ?? `Run failed with HTTP ${res.status}`);
         }
-        const data = (await res.json()) as RunResponse;
+        return (await res.json()) as RunResponse;
+      })();
+
+      const pollPromise = (async () => {
+        await new Promise((r) => setTimeout(r, POLL_DELAY_MS));
+        const startedAt = Date.now();
+        while (!controller.signal.aborted) {
+          if (Date.now() - startedAt > POLL_BUDGET_MS) {
+            throw new Error('poll budget exceeded');
+          }
+          try {
+            const r = await fetch(`/api/run/${id}`, {
+              signal: controller.signal,
+            });
+            if (r.ok) {
+              const data = (await r.json()) as RunResponse;
+              if (isComplete(data)) return data;
+            }
+          } catch (e: unknown) {
+            if ((e as Error)?.name === 'AbortError') throw e;
+            // transient network blip — keep polling
+          }
+          await new Promise((r) => setTimeout(r, POLL_INTERVAL_MS));
+        }
+        throw new Error('poll aborted');
+      })();
+
+      try {
+        const data = await Promise.race([postPromise, pollPromise]);
         sync(data);
       } catch (e: unknown) {
         const msg = e instanceof Error ? e.message : 'Run failed';
         setError(msg);
       } finally {
+        controller.abort();
+        // Swallow the loser's rejection so it doesn't surface as an unhandled
+        // promise rejection in the console.
+        postPromise.catch(() => {});
+        pollPromise.catch(() => {});
         setBusy(false);
       }
     },
