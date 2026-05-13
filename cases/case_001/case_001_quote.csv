@@ -1,0 +1,4 @@
+line_item,billing_type,quantity,unit_price,annual_amount,one_time_amount,notes
+Northstar Analytics Enterprise Platform,annual subscription,1,70000,70000,0,Includes Salesforce connector
+Snowflake data connector,annual subscription,1,15000,15000,0,Required for historical pipeline analysis
+Implementation services,one-time,1,10000,0,10000,One-time onboarding fee

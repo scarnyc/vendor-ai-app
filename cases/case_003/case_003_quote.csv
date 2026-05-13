@@ -1,0 +1,4 @@
+line_item,billing_type,quantity,unit_price,annual_amount,one_time_amount,notes
+TalentPulse AI Enterprise Subscription,annual subscription,1,120000,120000,0,"Up to 2,500 employees"
+Implementation package,one-time,1,20000,0,20000,HRIS and Slack integration
+Enterprise Control package,annual subscription,0,30000,0,0,Not included; required for AI training opt-out

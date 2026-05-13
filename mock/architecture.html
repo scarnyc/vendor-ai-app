@@ -1,0 +1,186 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Vendor Triage — Agent State Graph</title>
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;600;700&family=Geist:wght@400;500;600&family=Geist+Mono:wght@400;500&display=swap" rel="stylesheet" />
+<script src="https://cdn.jsdelivr.net/npm/mermaid@11/dist/mermaid.min.js"></script>
+<style>
+  :root {
+    --bg: oklch(0.145 0 0);
+    --surface: oklch(0.205 0 0);
+    --surface-2: oklch(0.255 0 0);
+    --border-soft: oklch(0.26 0 0);
+    --text: oklch(0.96 0 0);
+    --text-dim: oklch(0.72 0 0);
+    --text-mute: oklch(0.55 0 0);
+    --accent: #8E89FF;
+    --accent-soft: rgba(142, 137, 255, 0.14);
+    --success: oklch(0.78 0.16 155);
+    --warn: oklch(0.82 0.16 80);
+    --danger: oklch(0.72 0.21 25);
+    --info: oklch(0.78 0.13 230);
+    --font-chat: 'Plus Jakarta Sans', sans-serif;
+    --font-ui: 'Geist', sans-serif;
+    --font-mono: 'Geist Mono', monospace;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; padding: 32px 28px 48px;
+    background: var(--bg); color: var(--text);
+    font-family: var(--font-ui); font-size: 14px; line-height: 1.55;
+  }
+  .container { max-width: 1080px; margin: 0 auto; }
+  h1 { font-family: var(--font-chat); font-size: 22px; font-weight: 700; margin: 0 0 6px; }
+  h2 { font-family: var(--font-ui); font-size: 16px; font-weight: 600; margin: 28px 0 10px; color: var(--text); }
+  .sub { color: var(--text-mute); font-size: 13px; margin-bottom: 24px; }
+  .legend {
+    display: flex; flex-wrap: wrap; gap: 10px; margin-bottom: 22px;
+  }
+  .chip {
+    display: inline-flex; align-items: center; gap: 6px;
+    padding: 5px 10px; border-radius: 999px;
+    background: var(--surface); border: 1px solid var(--border-soft);
+    font-size: 11.5px;
+  }
+  .chip .sw { width: 10px; height: 10px; border-radius: 3px; }
+  .panel {
+    background: var(--surface);
+    border: 1px solid var(--border-soft);
+    border-radius: 12px;
+    padding: 22px;
+  }
+  .mermaid { background: transparent !important; }
+  table {
+    width: 100%; border-collapse: collapse; margin-top: 12px;
+    font-size: 12.5px;
+  }
+  th, td {
+    text-align: left; padding: 9px 12px;
+    border-bottom: 1px solid var(--border-soft);
+  }
+  th { color: var(--text-mute); font-size: 11px; text-transform: uppercase; letter-spacing: 0.06em; font-weight: 500; }
+  td code {
+    font-family: var(--font-mono); font-size: 11.5px;
+    background: var(--surface-2); padding: 1px 6px; border-radius: 4px;
+    color: var(--accent);
+  }
+  .annot {
+    color: var(--text-mute); font-size: 12px; margin-top: 14px;
+    padding: 12px 14px; border-left: 2px solid var(--accent);
+    background: var(--accent-soft); border-radius: 0 6px 6px 0;
+  }
+</style>
+</head>
+<body>
+  <div class="container">
+    <h1>Vendor Triage — Agent State Graph</h1>
+    <div class="sub">Aligned 1:1 with <code style="font-family: var(--font-mono); color: var(--accent);">tools/Agent process flow.png</code>. LangGraph.js nodes, deterministic tools, HITL gate per SPEC §9.</div>
+
+    <div class="legend">
+      <span class="chip"><span class="sw" style="background: var(--accent);"></span> Graph node</span>
+      <span class="chip"><span class="sw" style="background: var(--info);"></span> Deterministic tool</span>
+      <span class="chip"><span class="sw" style="background: var(--warn);"></span> Decision branch</span>
+      <span class="chip"><span class="sw" style="background: var(--danger);"></span> Human gate (interrupt)</span>
+      <span class="chip"><span class="sw" style="background: var(--success);"></span> Terminal</span>
+    </div>
+
+    <div class="panel">
+      <pre class="mermaid">
+flowchart TD
+  start(["▶  Start"]):::terminal
+  parse["parse_inputs<br/><span style='font-family:Geist Mono;font-size:10px;color:#9ca'>xlsx · pdf · csv · md · txt</span>"]:::node
+  validate["validate_required_documents()"]:::tool
+  branch{"Required<br/>fields complete?"}:::branch
+
+  %% YES branch
+  normalize["normalize_facts<br/><span style='font-family:Geist Mono;font-size:10px;color:#9ca'>vendor · ACV · term · cost_center · data_desc</span>"]:::node
+  budget["lookup_budget()"]:::tool
+  dup["check_existing_vendor()"]:::tool
+  tcv["calculate_total_contract_value()"]:::tool
+  classify["classify_data_sensitivity()"]:::tool
+  approvals["determine_required_approvals()"]:::tool
+  packet["prepare_decision_packet"]:::node
+
+  %% NO branch
+  missing["identify_missing_items"]:::node
+  followup["draft_vendor_followup()<br/><span style='font-family:Geist Mono;font-size:10px;color:#fc6'>DRAFT — never sent autonomously</span>"]:::tool
+  escalate["escalate_to_human()"]:::tool
+
+  %% Citation guard then HITL
+  guard["validate_citations<br/><span style='font-family:Geist Mono;font-size:10px;color:#9ca'>quotes ⊆ policy text</span>"]:::node
+  hitl(("HITL · interrupt()<br/>Approve · Edit · Reject · Send draft")):::hitl
+  emit["emit_final_packet"]:::node
+  done(["■  End"]):::terminal
+
+  start --> parse --> validate --> branch
+  branch -- "YES (complete)" --> normalize
+  normalize --> budget --> dup --> tcv --> classify --> approvals --> packet
+  packet --> guard
+
+  branch -- "NO / unclear" --> missing
+  missing --> followup --> escalate
+  escalate --> guard
+
+  guard --> hitl
+  hitl -->|Command resume| emit
+  emit --> done
+
+  classDef node fill:#231f3a,stroke:#8E89FF,stroke-width:1.5px,color:#f1f1f4,rx:8,ry:8;
+  classDef tool fill:#1c2733,stroke:#7cb6f2,stroke-width:1.2px,color:#f1f1f4,rx:8,ry:8;
+  classDef branch fill:#3a3320,stroke:#dba85a,stroke-width:1.5px,color:#fff,rx:6,ry:6;
+  classDef hitl fill:#3b2530,stroke:#f08c8c,stroke-width:2px,color:#fff;
+  classDef terminal fill:#1f3326,stroke:#8be0a8,stroke-width:1.2px,color:#dff8e7;
+      </pre>
+    </div>
+
+    <div class="annot">
+      <strong>SPEC §9 enforcement.</strong> The graph contains no edge that emits an external message, accepts contract terms, or marks spend approved without a <code style="font-family: var(--font-mono);">Command(resume=…)</code> from the human gate. <code style="font-family: var(--font-mono);">draft_vendor_followup</code> only writes a draft into the packet; sending requires Priya's button click. <code style="font-family: var(--font-mono);">validate_citations</code> rejects flags whose quoted policy text isn't a verbatim substring of the cited doc — closes the no-hallucination loop before HITL.
+    </div>
+
+    <h2>Tool catalog (the 8 PNG-named tools)</h2>
+    <div class="panel">
+      <table>
+        <thead><tr><th>Tool</th><th>Purpose</th><th>Inputs → outputs</th></tr></thead>
+        <tbody>
+          <tr><td><code>validate_required_documents</code></td><td>Confirm all 5 input types are present and parseable for the case folder.</td><td>case_id → { present: string[], missing: string[], parse_errors: string[] }</td></tr>
+          <tr><td><code>lookup_budget</code></td><td>Read budget_lookup.csv for cost-center remaining + owner.</td><td>cost_center → { dept, remaining, owner, ok_for_acv }</td></tr>
+          <tr><td><code>check_existing_vendor</code></td><td>Fuzzy-match vendor_register.csv to flag duplicates / pre-existing records.</td><td>vendor_name → { match_id, confidence, status, category }</td></tr>
+          <tr><td><code>calculate_total_contract_value</code></td><td>TCV = ACV × term_months / 12; preserve one-time fees separately per finance policy.</td><td>(acv, term_months, one_time) → { tcv, one_time, term_months }</td></tr>
+          <tr><td><code>classify_data_sensitivity</code></td><td>Map data description to 4-way enum (public · internal · confidential · restricted).</td><td>data_description → { data_class, drivers[] }</td></tr>
+          <tr><td><code>determine_required_approvals</code></td><td>Apply finance matrix + legal + security policies; derive approver list and recommended action.</td><td>(risk_tier, acv, tcv, term, payment_terms, data_class) → { approvers[], recommended_action }</td></tr>
+          <tr><td><code>draft_vendor_followup</code></td><td>LLM drafts vendor email naming missing items; returned with <code>DRAFT</code> label, never sent.</td><td>(missing[], vendor_email) → { draft_text }</td></tr>
+          <tr><td><code>escalate_to_human</code></td><td>Emit a structured escalation ticket — does NOT bypass HITL.</td><td>(reason, severity) → { ticket_id, summary }</td></tr>
+        </tbody>
+      </table>
+    </div>
+
+    <h2>State + checkpointer</h2>
+    <div class="panel">
+      <p style="margin: 0 0 10px;">LangGraph.js graph compiled with <code style="font-family: var(--font-mono); color: var(--accent);">MemorySaver</code> (Vercel ephemeral filesystem). Thread keyed by <code style="font-family: var(--font-mono); color: var(--accent);">?case=001&thread=&lt;uuid&gt;</code> URL params so a refresh after timeout resumes cleanly. Productionization swaps to a Postgres checkpointer for durable HITL state across cold starts.</p>
+      <p style="margin: 0; color: var(--text-mute); font-size: 12.5px;">All nodes stream — Vercel Hobby's 10s function timeout resets on every chunk, so a long completion stays alive as long as bytes flow.</p>
+    </div>
+  </div>
+
+  <script>
+    mermaid.initialize({
+      startOnLoad: true,
+      theme: 'dark',
+      themeVariables: {
+        background: 'transparent',
+        primaryColor: '#231f3a',
+        primaryTextColor: '#f1f1f4',
+        primaryBorderColor: '#8E89FF',
+        lineColor: '#6b6f8a',
+        secondaryColor: '#1c2733',
+        tertiaryColor: '#3a3320',
+        fontFamily: 'Geist, sans-serif',
+        fontSize: '13px'
+      },
+      flowchart: { curve: 'basis', padding: 18, nodeSpacing: 38, rankSpacing: 46 }
+    });
+  </script>
+</body>
+</html>

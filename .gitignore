@@ -1,0 +1,56 @@
+# OS
+.DS_Store
+Thumbs.db
+
+# Office lockfiles (when README_Technical Exercise.docx is open in Word)
+~$*
+
+# Local Claude settings + memory (per-machine state)
+.claude/settings.local.json
+.remember/
+
+# Secrets — NEVER commit
+.env
+.env.local
+.env.*.local
+*.pem
+*.key
+
+# Node / Next.js (ahead of scaffold)
+node_modules/
+.next/
+out/
+build/
+dist/
+.turbo/
+*.tsbuildinfo
+next-env.d.ts
+
+# Package-manager noise
+npm-debug.log*
+pnpm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# Vercel
+.vercel/
+
+# LangGraph checkpointer (MemorySaver is in-memory, but a SQLite fallback would land here)
+.langgraph/
+
+# Test / coverage
+coverage/
+.nyc_output/
+*.lcov
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# Logs
+*.log
+
+# TheAuditor index (per-machine)
+.pf/

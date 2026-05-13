@@ -1,0 +1,700 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="dark">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Vendor Triage — Procurement Co-Pilot (Mock)</title>
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+<link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700&family=Geist:wght@400;500;600;700&family=Geist+Mono:wght@400;500&display=swap" rel="stylesheet" />
+<style>
+  :root {
+    --bg: oklch(0.145 0 0);
+    --surface: oklch(0.205 0 0);
+    --surface-2: oklch(0.255 0 0);
+    --surface-3: oklch(0.305 0 0);
+    --border: oklch(0.32 0 0);
+    --border-soft: oklch(0.26 0 0);
+    --text: oklch(0.96 0 0);
+    --text-dim: oklch(0.72 0 0);
+    --text-mute: oklch(0.55 0 0);
+    --accent: #8E89FF;
+    --accent-soft: rgba(142, 137, 255, 0.14);
+    --success: oklch(0.78 0.16 155);
+    --success-soft: rgba(120, 220, 160, 0.12);
+    --warn: oklch(0.82 0.16 80);
+    --warn-soft: rgba(245, 200, 100, 0.14);
+    --danger: oklch(0.72 0.21 25);
+    --danger-soft: rgba(245, 110, 110, 0.14);
+    --info: oklch(0.78 0.13 230);
+    --info-soft: rgba(120, 180, 240, 0.12);
+    --radius-sm: 6px;
+    --radius: 10px;
+    --radius-lg: 14px;
+    --shadow-card: 0 1px 0 oklch(0.30 0 0 / 0.4), 0 12px 40px -16px rgba(0,0,0,0.6);
+    --font-chat: 'Plus Jakarta Sans', system-ui, sans-serif;
+    --font-ui: 'Geist', system-ui, sans-serif;
+    --font-mono: 'Geist Mono', ui-monospace, monospace;
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; padding: 0; height: 100%; background: var(--bg); color: var(--text); font-family: var(--font-ui); font-size: 14px; line-height: 1.5; -webkit-font-smoothing: antialiased; }
+  button { font-family: inherit; cursor: pointer; }
+
+  /* App shell */
+  .app {
+    display: grid;
+    grid-template-columns: 240px 1fr;
+    grid-template-rows: 100vh;
+    overflow: hidden;
+  }
+
+  /* Persona Rail */
+  .rail {
+    background: var(--surface);
+    border-right: 1px solid var(--border-soft);
+    display: flex;
+    flex-direction: column;
+    padding: 14px 10px;
+    gap: 4px;
+    overflow-y: auto;
+  }
+  .rail-brand {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 8px 10px 14px;
+    border-bottom: 1px solid var(--border-soft);
+    margin-bottom: 10px;
+  }
+  .rail-brand-mark {
+    width: 28px; height: 28px; border-radius: 8px;
+    background: linear-gradient(135deg, var(--accent), oklch(0.62 0.20 280));
+    display: grid; place-items: center;
+    font-family: var(--font-ui); font-weight: 700; font-size: 13px;
+    color: var(--bg);
+  }
+  .rail-brand-text { display: flex; flex-direction: column; line-height: 1.15; }
+  .rail-brand-title { font-weight: 600; font-size: 13px; }
+  .rail-brand-sub { font-size: 11px; color: var(--text-mute); }
+
+  .rail-section-label {
+    font-size: 10.5px;
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    color: var(--text-mute);
+    padding: 10px 10px 4px;
+  }
+  .rail-item {
+    display: flex; align-items: center; gap: 10px;
+    padding: 8px 10px; border-radius: var(--radius-sm);
+    color: var(--text-dim); cursor: pointer;
+    border: 1px solid transparent;
+    background: transparent;
+    width: 100%; text-align: left;
+    font-size: 13px;
+  }
+  .rail-item:hover { background: var(--surface-2); color: var(--text); }
+  .rail-item[aria-current="true"] {
+    background: var(--accent-soft);
+    color: var(--text);
+    border-color: oklch(0.45 0.10 290 / 0.4);
+  }
+  .rail-item .ic { width: 16px; height: 16px; flex-shrink: 0; opacity: 0.85; }
+  .rail-item .label { flex: 1; }
+  .rail-item .badge-dot { width: 6px; height: 6px; border-radius: 50%; background: var(--accent); }
+  .rail-item .lock { font-size: 10px; color: var(--text-mute); }
+
+  /* Canvas */
+  .canvas {
+    display: grid;
+    grid-template-rows: auto 1fr auto;
+    overflow: hidden;
+    background: var(--bg);
+  }
+
+  /* Canvas header */
+  .canvas-header {
+    display: flex; align-items: center; gap: 14px;
+    padding: 14px 28px;
+    border-bottom: 1px solid var(--border-soft);
+    background: var(--bg);
+  }
+  .case-title { font-family: var(--font-ui); font-weight: 600; font-size: 15px; }
+  .case-meta { color: var(--text-mute); font-size: 12px; font-family: var(--font-mono); }
+  .header-spacer { flex: 1; }
+  .lens-chip {
+    display: inline-flex; align-items: center; gap: 6px;
+    padding: 4px 10px; border-radius: 999px;
+    background: var(--accent-soft); color: var(--text);
+    font-size: 11.5px; font-weight: 500;
+    border: 1px solid oklch(0.45 0.10 290 / 0.4);
+  }
+  .badge {
+    display: inline-flex; align-items: center; gap: 6px;
+    padding: 3px 9px; border-radius: 999px;
+    font-size: 11px; font-weight: 600;
+    border: 1px solid var(--border-soft);
+    background: var(--surface);
+  }
+  .badge.b-warn { background: var(--warn-soft); color: var(--warn); border-color: oklch(0.45 0.13 80 / 0.5); }
+  .badge.b-danger { background: var(--danger-soft); color: var(--danger); border-color: oklch(0.50 0.18 25 / 0.5); }
+  .badge.b-success { background: var(--success-soft); color: var(--success); border-color: oklch(0.45 0.13 155 / 0.5); }
+  .badge.b-info { background: var(--info-soft); color: var(--info); border-color: oklch(0.45 0.10 230 / 0.5); }
+  .badge.b-accent { background: var(--accent-soft); color: var(--text); border-color: oklch(0.45 0.10 290 / 0.5); }
+
+  /* Canvas body */
+  .canvas-body {
+    overflow-y: auto;
+    padding: 24px 28px 32px;
+    display: flex; flex-direction: column;
+    gap: 18px;
+  }
+  .canvas-body-inner {
+    max-width: 880px;
+    width: 100%;
+    margin: 0 auto;
+    display: flex; flex-direction: column; gap: 18px;
+  }
+
+  /* PlanList */
+  .plan {
+    background: var(--surface);
+    border: 1px solid var(--border-soft);
+    border-radius: var(--radius);
+    padding: 14px 16px;
+  }
+  .plan-header {
+    display: flex; align-items: center; gap: 8px;
+    color: var(--text-dim); font-size: 12px;
+    text-transform: uppercase; letter-spacing: 0.06em;
+    padding-bottom: 10px;
+  }
+  .plan ol { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 6px; }
+  .plan li {
+    display: flex; align-items: center; gap: 10px;
+    font-size: 13px; color: var(--text-dim);
+  }
+  .plan li .step-dot { width: 14px; height: 14px; border-radius: 50%; border: 1.5px solid var(--border); flex-shrink: 0; }
+  .plan li.done { color: var(--text); }
+  .plan li.done .step-dot { background: var(--success); border-color: var(--success); }
+  .plan li.active { color: var(--text); }
+  .plan li.active .step-dot { background: var(--accent); border-color: var(--accent); animation: pulse 1.4s ease-in-out infinite; }
+  @keyframes pulse { 0%,100% { opacity: 1; } 50% { opacity: 0.5; } }
+
+  /* ToolCall */
+  .tool-call {
+    background: var(--surface);
+    border: 1px solid var(--border-soft);
+    border-radius: var(--radius);
+    overflow: hidden;
+  }
+  .tool-call > summary {
+    display: flex; align-items: center; gap: 10px;
+    padding: 10px 14px;
+    list-style: none; cursor: pointer;
+    font-family: var(--font-mono); font-size: 12.5px;
+  }
+  .tool-call > summary::-webkit-details-marker { display: none; }
+  .tool-call > summary::before {
+    content: '›'; color: var(--text-mute); font-size: 16px;
+    transition: transform 0.15s ease;
+    display: inline-block;
+  }
+  .tool-call[open] > summary::before { transform: rotate(90deg); }
+  .tool-call .tool-name { color: var(--accent); }
+  .tool-call .tool-args { color: var(--text-mute); }
+  .tool-call .result {
+    border-top: 1px solid var(--border-soft);
+    padding: 10px 14px;
+    background: oklch(0.18 0 0);
+    font-family: var(--font-mono); font-size: 12px;
+    color: var(--text-dim);
+    white-space: pre-wrap;
+  }
+
+  /* DecisionPacket */
+  .packet {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-lg);
+    box-shadow: var(--shadow-card);
+  }
+  .packet-header {
+    display: flex; align-items: center; gap: 12px;
+    padding: 16px 20px;
+    border-bottom: 1px solid var(--border-soft);
+  }
+  .packet-title { font-family: var(--font-chat); font-size: 16px; font-weight: 700; }
+  .packet-tagline { color: var(--text-mute); font-size: 12px; margin-top: 2px; }
+  .packet-body { padding: 18px 20px; display: flex; flex-direction: column; gap: 18px; }
+
+  .grid-2 { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+  .grid-3 { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 12px; }
+
+  .stat {
+    background: var(--surface-2);
+    border: 1px solid var(--border-soft);
+    border-radius: var(--radius);
+    padding: 12px 14px;
+  }
+  .stat-label { font-size: 10.5px; text-transform: uppercase; letter-spacing: 0.06em; color: var(--text-mute); }
+  .stat-value { font-family: var(--font-ui); font-weight: 600; font-size: 15px; margin-top: 4px; }
+  .stat-sub { color: var(--text-mute); font-size: 11.5px; margin-top: 2px; font-family: var(--font-mono); }
+
+  .section-h {
+    font-size: 11px; text-transform: uppercase; letter-spacing: 0.08em;
+    color: var(--text-mute); margin-bottom: 8px;
+    display: flex; align-items: center; gap: 8px;
+  }
+  .section-h::after { content: ''; flex: 1; height: 1px; background: var(--border-soft); }
+
+  .flag {
+    display: flex; gap: 12px;
+    background: var(--surface-2);
+    border: 1px solid var(--border-soft);
+    border-radius: var(--radius);
+    padding: 12px 14px;
+  }
+  .flag-bar { width: 3px; border-radius: 2px; flex-shrink: 0; }
+  .flag.f-block .flag-bar { background: var(--danger); }
+  .flag.f-warn .flag-bar { background: var(--warn); }
+  .flag.f-info .flag-bar { background: var(--info); }
+  .flag-body { flex: 1; }
+  .flag-recipient { font-size: 10.5px; text-transform: uppercase; letter-spacing: 0.06em; color: var(--text-mute); margin-bottom: 4px; }
+  .flag-issue { font-size: 13px; color: var(--text); }
+  .flag-citations { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 8px; }
+
+  .citation {
+    display: inline-flex; align-items: center; gap: 4px;
+    padding: 2px 8px; border-radius: var(--radius-sm);
+    background: var(--accent-soft);
+    color: var(--accent);
+    font-family: var(--font-mono); font-size: 11px;
+    cursor: pointer;
+    border: 1px solid oklch(0.45 0.10 290 / 0.3);
+  }
+  .citation:hover { background: oklch(0.30 0.06 290); }
+
+  .approver-list {
+    display: flex; flex-wrap: wrap; gap: 6px;
+  }
+  .approver-list .badge { background: var(--surface-2); }
+
+  .recommended {
+    background: var(--accent-soft);
+    border: 1px solid oklch(0.45 0.10 290 / 0.5);
+    border-radius: var(--radius);
+    padding: 14px 16px;
+    display: flex; align-items: center; gap: 14px;
+  }
+  .recommended .ic { width: 22px; height: 22px; color: var(--accent); }
+  .recommended-text { flex: 1; }
+  .recommended-title { font-weight: 600; font-size: 13.5px; }
+  .recommended-sub { color: var(--text-dim); font-size: 12px; margin-top: 2px; }
+
+  /* HITL Confirmation */
+  .confirm {
+    margin: 0 20px 20px;
+    background: linear-gradient(180deg, oklch(0.22 0 0), oklch(0.20 0 0));
+    border: 1px solid oklch(0.45 0.10 290 / 0.5);
+    border-radius: var(--radius-lg);
+    padding: 16px 18px;
+  }
+  .confirm-header {
+    display: flex; align-items: center; gap: 10px;
+    margin-bottom: 12px;
+  }
+  .confirm-title { font-weight: 600; font-size: 14px; }
+  .confirm-sub { color: var(--text-mute); font-size: 12px; }
+  .confirm-actions {
+    display: flex; gap: 8px; flex-wrap: wrap; margin-top: 14px;
+  }
+  .btn {
+    padding: 8px 14px;
+    border-radius: var(--radius-sm);
+    border: 1px solid var(--border);
+    background: var(--surface-2);
+    color: var(--text);
+    font-size: 13px; font-weight: 500;
+    display: inline-flex; align-items: center; gap: 6px;
+  }
+  .btn:hover { background: var(--surface-3); }
+  .btn.btn-primary { background: var(--accent); color: var(--bg); border-color: var(--accent); font-weight: 600; }
+  .btn.btn-primary:hover { background: oklch(0.72 0.16 290); }
+  .btn.btn-warn { background: var(--warn-soft); color: var(--warn); border-color: oklch(0.45 0.13 80 / 0.5); }
+  .btn.btn-danger { background: var(--danger-soft); color: var(--danger); border-color: oklch(0.50 0.18 25 / 0.5); }
+
+  .editable {
+    background: oklch(0.18 0 0);
+    border: 1px solid var(--border-soft);
+    border-radius: var(--radius-sm);
+    padding: 10px 12px;
+    color: var(--text);
+    font-size: 13px;
+    width: 100%;
+    font-family: inherit;
+    resize: vertical;
+  }
+  .field-label {
+    font-size: 11px; text-transform: uppercase; letter-spacing: 0.06em;
+    color: var(--text-mute); margin-bottom: 6px;
+  }
+  .confirm-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+
+  /* Ambient prompt pill */
+  .pill-dock {
+    border-top: 1px solid var(--border-soft);
+    background: linear-gradient(180deg, transparent, oklch(0.16 0 0));
+    padding: 14px 28px 18px;
+  }
+  .pill {
+    max-width: 880px; margin: 0 auto;
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 999px;
+    padding: 10px 16px;
+    display: flex; align-items: center; gap: 10px;
+    box-shadow: 0 6px 24px -10px rgba(0,0,0,0.5);
+  }
+  .pill .ic { width: 16px; height: 16px; color: var(--text-mute); flex-shrink: 0; }
+  .pill input {
+    flex: 1; background: transparent; border: 0; color: var(--text);
+    font-family: inherit; font-size: 13.5px; outline: none;
+  }
+  .pill input::placeholder { color: var(--text-mute); }
+  .pill .pill-btn {
+    background: var(--accent); color: var(--bg); border: 0;
+    width: 30px; height: 30px; border-radius: 50%;
+    display: grid; place-items: center;
+  }
+  .pill-hint {
+    max-width: 880px; margin: 8px auto 0;
+    font-size: 11px; color: var(--text-mute); font-family: var(--font-mono);
+    display: flex; gap: 14px;
+  }
+
+  /* Inline status */
+  .status-row { display: flex; align-items: center; gap: 8px; }
+</style>
+</head>
+<body>
+  <div class="app">
+    <!-- Persona Rail -->
+    <aside class="rail" aria-label="Persona lens rail">
+      <div class="rail-brand">
+        <div class="rail-brand-mark">VT</div>
+        <div class="rail-brand-text">
+          <div class="rail-brand-title">Vendor Triage</div>
+          <div class="rail-brand-sub">Procurement Co-Pilot</div>
+        </div>
+      </div>
+
+      <div class="rail-section-label">Lenses</div>
+      <button class="rail-item" aria-current="true">
+        <svg class="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"><rect x="3" y="6" width="18" height="14" rx="2"/><path d="M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></svg>
+        <span class="label">All Cases</span>
+        <span class="badge-dot" title="3 active"></span>
+      </button>
+      <button class="rail-item">
+        <svg class="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M12 2 4 6v6c0 4.5 3.5 8.5 8 10 4.5-1.5 8-5.5 8-10V6l-8-4Z"/></svg>
+        <span class="label">Procurement</span>
+        <span class="lock">operator</span>
+      </button>
+
+      <div class="rail-section-label">Recipients (preview)</div>
+      <button class="rail-item">
+        <svg class="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M3 7h18v10a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V7Z"/><path d="M16 11h2"/></svg>
+        <span class="label">Business Owner</span>
+        <span class="lock">read-only</span>
+      </button>
+      <button class="rail-item">
+        <svg class="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M12 3a9 9 0 0 0-9 9c0 5 4 9 9 9s9-4 9-9-4-9-9-9Z"/><path d="M9 12h6"/><path d="M12 9v6"/></svg>
+        <span class="label">Legal</span>
+        <span class="lock">read-only</span>
+      </button>
+      <button class="rail-item">
+        <svg class="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M14.7 6.3a4 4 0 0 0-5.4 5.4L3 18l3 3 6.3-6.3a4 4 0 0 0 5.4-5.4l-2.5 2.5-2.5-2.5 2.5-2.5Z"/></svg>
+        <span class="label">Security</span>
+        <span class="lock">read-only</span>
+      </button>
+      <button class="rail-item">
+        <svg class="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"><polyline points="3 17 9 11 13 15 21 7"/><polyline points="14 7 21 7 21 14"/></svg>
+        <span class="label">VP Finance</span>
+        <span class="lock">read-only</span>
+      </button>
+      <button class="rail-item">
+        <svg class="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"><polyline points="3 17 9 11 13 15 21 7"/><polyline points="14 7 21 7 21 14"/></svg>
+        <span class="label">CFO</span>
+        <span class="lock">read-only</span>
+      </button>
+      <button class="rail-item">
+        <svg class="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M12 2 4 6v6c0 4.5 3.5 8.5 8 10 4.5-1.5 8-5.5 8-10V6l-8-4Z"/></svg>
+        <span class="label">Executive</span>
+        <span class="lock">read-only</span>
+      </button>
+    </aside>
+
+    <!-- Canvas -->
+    <main class="canvas">
+      <!-- Canvas header -->
+      <header class="canvas-header">
+        <div>
+          <div class="case-title">Northstar Analytics, Inc.</div>
+          <div class="case-meta">case_001 · SaaS · Revenue Operations</div>
+        </div>
+        <div class="header-spacer"></div>
+        <span class="badge b-accent">
+          <span class="status-row">
+            <svg viewBox="0 0 12 12" width="10" height="10"><circle cx="6" cy="6" r="4" fill="currentColor"/></svg>
+            Awaiting human
+          </span>
+        </span>
+        <span class="lens-chip">viewing as: All Cases</span>
+      </header>
+
+      <!-- Canvas body -->
+      <div class="canvas-body">
+        <div class="canvas-body-inner">
+
+          <!-- PlanList -->
+          <section class="plan" aria-label="Agent plan">
+            <div class="plan-header">Run plan · 8 nodes</div>
+            <ol>
+              <li class="done"><span class="step-dot"></span>Parse case_001 inputs (intake.xlsx, vendor_email.txt, quote.csv, security_questionnaire.md, contract.pdf)</li>
+              <li class="done"><span class="step-dot"></span>Validate required documents (5/5 parseable)</li>
+              <li class="done"><span class="step-dot"></span>Lookup budget (REVOPS-042)</li>
+              <li class="done"><span class="step-dot"></span>Check existing vendor (Northstar Analytics, Inc. → VEN-1024 active)</li>
+              <li class="done"><span class="step-dot"></span>Calculate total contract value ($85k ACV × 12mo + $10k OT)</li>
+              <li class="done"><span class="step-dot"></span>Classify data sensitivity (Confidential — customer PII)</li>
+              <li class="done"><span class="step-dot"></span>Determine required approvals</li>
+              <li class="active"><span class="step-dot"></span>Awaiting human approval</li>
+            </ol>
+          </section>
+
+          <!-- Tool calls -->
+          <details class="tool-call" open>
+            <summary><span class="tool-name">lookup_budget</span><span class="tool-args">(cost_center="REVOPS-042")</span></summary>
+            <div class="result">{
+  "cost_center": "REVOPS-042",
+  "department": "Revenue Operations",
+  "annual_budget_remaining": 120000,
+  "budget_owner": "Maya Patel",
+  "ok_for_acv": true,
+  "headroom_after": 35000
+}</div>
+          </details>
+
+          <details class="tool-call">
+            <summary><span class="tool-name">check_existing_vendor</span><span class="tool-args">(name="Northstar Analytics, Inc.")</span></summary>
+            <div class="result">{ "match": "VEN-1024", "confidence": 1.0, "status": "active", "category": "SaaS" }</div>
+          </details>
+
+          <details class="tool-call">
+            <summary><span class="tool-name">classify_data_sensitivity</span><span class="tool-args">(...)</span></summary>
+            <div class="result">{ "data_class": "confidential", "drivers": ["customer PII", "Salesforce contacts", "Snowflake reads"] }</div>
+          </details>
+
+          <!-- Decision Packet Card -->
+          <section class="packet" aria-label="Decision Packet">
+            <div class="packet-header">
+              <div>
+                <div class="packet-title">Decision Packet</div>
+                <div class="packet-tagline">Pre-filled by agent · pending Priya's review</div>
+              </div>
+              <div class="header-spacer"></div>
+              <span class="badge b-warn">Risk: Medium-High</span>
+              <span class="badge b-info">Data: Confidential</span>
+            </div>
+
+            <div class="packet-body">
+              <!-- Stats -->
+              <div class="grid-3">
+                <div class="stat">
+                  <div class="stat-label">Annual Contract Value</div>
+                  <div class="stat-value">$85,000</div>
+                  <div class="stat-sub">+ $10,000 one-time impl.</div>
+                </div>
+                <div class="stat">
+                  <div class="stat-label">Total Contract Value</div>
+                  <div class="stat-value">$95,000</div>
+                  <div class="stat-sub">12-month term</div>
+                </div>
+                <div class="stat">
+                  <div class="stat-label">Budget Headroom</div>
+                  <div class="stat-value">$35,000</div>
+                  <div class="stat-sub">REVOPS-042 · Maya Patel</div>
+                </div>
+              </div>
+
+              <!-- Intake summary -->
+              <div>
+                <div class="section-h">Intake summary</div>
+                <p style="margin: 0; color: var(--text-dim); font-size: 13px;">
+                  Northstar Analytics requesting renewal + Snowflake module. Salesforce + Snowflake integration; AWS/Segment/Clearbit subprocessors (Clearbit EU). SOC 2 Type I only. AI training opt-out is default-off in the order form.
+                </p>
+              </div>
+
+              <!-- Policy flags -->
+              <div>
+                <div class="section-h">Policy flags · 5</div>
+                <div style="display: flex; flex-direction: column; gap: 8px;">
+
+                  <div class="flag f-block">
+                    <div class="flag-bar"></div>
+                    <div class="flag-body">
+                      <div class="flag-recipient">→ Security</div>
+                      <div class="flag-issue">SOC 2 Type II (or equivalent attestation) required for medium/high-risk SaaS handling customer PII. Vendor provided Type I only.</div>
+                      <div class="flag-citations">
+                        <span class="citation">[procurement_policy §SaaS]</span>
+                        <span class="citation">[security_review_policy]</span>
+                      </div>
+                    </div>
+                  </div>
+
+                  <div class="flag f-block">
+                    <div class="flag-bar"></div>
+                    <div class="flag-body">
+                      <div class="flag-recipient">→ Legal</div>
+                      <div class="flag-issue">Data Processing Agreement missing. Required because vendor processes customer PII.</div>
+                      <div class="flag-citations">
+                        <span class="citation">[procurement_policy §DPA]</span>
+                        <span class="citation">[legal_review_policy]</span>
+                      </div>
+                    </div>
+                  </div>
+
+                  <div class="flag f-warn">
+                    <div class="flag-bar"></div>
+                    <div class="flag-body">
+                      <div class="flag-recipient">→ Legal · Security</div>
+                      <div class="flag-issue">EU subprocessor (Clearbit) — cross-border data transfer requires SCCs / TIA review.</div>
+                      <div class="flag-citations">
+                        <span class="citation">[data_handling_policy §subprocessors]</span>
+                      </div>
+                    </div>
+                  </div>
+
+                  <div class="flag f-warn">
+                    <div class="flag-bar"></div>
+                    <div class="flag-body">
+                      <div class="flag-recipient">→ Legal</div>
+                      <div class="flag-issue">"Service improvement" wording in MSA may permit AI training on customer data unless explicitly disabled in order form.</div>
+                      <div class="flag-citations">
+                        <span class="citation">[legal_review_policy §AI training]</span>
+                      </div>
+                    </div>
+                  </div>
+
+                  <div class="flag f-info">
+                    <div class="flag-bar"></div>
+                    <div class="flag-body">
+                      <div class="flag-recipient">→ VP Finance</div>
+                      <div class="flag-issue">ACV $85k crosses $50k Finance threshold; budget headroom OK ($35k remaining after).</div>
+                      <div class="flag-citations">
+                        <span class="citation">[finance_approval_matrix]</span>
+                      </div>
+                    </div>
+                  </div>
+
+                </div>
+              </div>
+
+              <!-- Approvers -->
+              <div>
+                <div class="section-h">Required approvers</div>
+                <div class="approver-list">
+                  <span class="badge">Business Owner</span>
+                  <span class="badge">Procurement Manager</span>
+                  <span class="badge">VP Finance</span>
+                  <span class="badge">Legal</span>
+                  <span class="badge">Security</span>
+                </div>
+              </div>
+
+              <!-- Recommended action -->
+              <div class="recommended">
+                <svg class="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M12 2v4M12 18v4M4 12H2M22 12h-2M5.6 5.6l-1.4-1.4M19.8 19.8l-1.4-1.4M5.6 18.4l-1.4 1.4M19.8 4.2l-1.4 1.4"/></svg>
+                <div class="recommended-text">
+                  <div class="recommended-title">Recommended: Approve with follow-up</div>
+                  <div class="recommended-sub">Send draft vendor email requesting SOC 2 II + DPA + AI-training opt-out before Legal/Security gate. Hold approval at Priya's discretion.</div>
+                </div>
+              </div>
+            </div>
+
+            <!-- Inline HITL ConfirmationCard -->
+            <div class="confirm" role="region" aria-label="Human approval gate">
+              <div class="confirm-header">
+                <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="var(--accent)" stroke-width="1.8"><circle cx="12" cy="12" r="10"/><path d="M12 8v5l3 2"/></svg>
+                <div>
+                  <div class="confirm-title">Human approval required</div>
+                  <div class="confirm-sub">Review, edit, then choose an action. The agent will not act without you.</div>
+                </div>
+              </div>
+
+              <div class="confirm-grid">
+                <div>
+                  <div class="field-label">Risk tier</div>
+                  <select class="editable">
+                    <option>Low</option>
+                    <option selected>Medium-High</option>
+                    <option>High</option>
+                  </select>
+                </div>
+                <div>
+                  <div class="field-label">Add an approver</div>
+                  <select class="editable">
+                    <option>—</option>
+                    <option>CFO</option>
+                    <option>Executive sponsor</option>
+                  </select>
+                </div>
+              </div>
+
+              <div style="margin-top: 12px;">
+                <div class="field-label">Draft vendor follow-up email · DRAFT — not sent</div>
+                <textarea class="editable" rows="5">Hi Jordan — Before we move forward with the Northstar renewal + Snowflake module, our policy requires three items: (1) SOC 2 Type II report (we have Type I on file), (2) executed Data Processing Agreement covering customer PII processing, and (3) confirmation that the AI training opt-out is enabled by default on our tenant (the current order form leaves this as service-improvement default). Could you send those over this week? Happy to jump on a call if helpful. — Priya</textarea>
+              </div>
+
+              <div class="confirm-actions">
+                <button class="btn btn-primary">
+                  <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2"><path d="m5 13 4 4L19 7"/></svg>
+                  Approve recommendation
+                </button>
+                <button class="btn">
+                  <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 8h18"/><path d="M3 16h18"/></svg>
+                  Send follow-up draft to vendor
+                </button>
+                <button class="btn btn-warn">
+                  Edit and re-run
+                </button>
+                <button class="btn btn-danger">
+                  Reject + escalate
+                </button>
+              </div>
+            </div>
+          </section>
+
+        </div>
+      </div>
+
+      <!-- Ambient prompt pill -->
+      <footer class="pill-dock">
+        <div class="pill">
+          <svg class="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"><circle cx="11" cy="11" r="7"/><path d="m21 21-4.3-4.3"/></svg>
+          <input type="text" placeholder="Ask anything · /run case_002 · /explain SOC 2 II requirement · /show audit" />
+          <button class="pill-btn" aria-label="Send">
+            <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2"><path d="M5 12h14M13 6l6 6-6 6"/></svg>
+          </button>
+        </div>
+        <div class="pill-hint">
+          <span>/run case_001</span>
+          <span>/run case_002</span>
+          <span>/run case_003</span>
+          <span>/explain &lt;flag&gt;</span>
+          <span>/show audit</span>
+        </div>
+      </footer>
+    </main>
+  </div>
+</body>
+</html>

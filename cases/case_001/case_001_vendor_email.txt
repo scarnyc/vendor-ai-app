@@ -1,0 +1,14 @@
+Hi Maya,
+
+Thanks for considering Northstar Analytics. We are excited to support the Revenue Operations team.
+
+Attached are our order form, a completed security questionnaire, a contract excerpt, and a pricing quote. We can begin onboarding within two weeks.
+
+A few notes:
+- We integrate with Salesforce and Snowflake.
+- Our subprocessors include AWS in the US, Segment in the US, and Clearbit in the EU.
+- We do not train foundation models on customer data. Our product may use customer data to improve account-level recommendations unless the customer disables that setting.
+
+Best,
+Jordan Kim
+Northstar Analytics
