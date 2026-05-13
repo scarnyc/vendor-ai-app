@@ -1,6 +1,6 @@
 # Vendor AI — Procurement Workbench
 
-A take-home prototype for an AI agent that triages vendor onboarding cases against
+A prototype for an AI agent that triages vendor onboarding cases against
 seven internal policy docs and produces an editable decision packet for a procurement
 owner to approve, edit, or reject. Built for the Accelerant Tech PM exercise.
 
