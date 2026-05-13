@@ -12,7 +12,7 @@ teams. Phased; each phase has explicit gates and the metrics that decide
 | Vendor register | `tools/vendor_register.csv` (~30 vendors, fuzzy via fuse.js) | NetSuite vendor table or Salesforce account search; same fuzzy-match guardrails |
 | Case folder intake | Filesystem under `cases/` | Email-in (`procurement@…` forwarder) + Slack `/onboard-vendor` slash command + S3 drop bucket |
 | Contract parsing | `unpdf` reads text-layer PDFs | Add OCR fallback (`pdfplumber`-equivalent) for scanned PDFs; route ambiguous parses to manual review |
-| LLM provider | Free OpenRouter `:free` models | Anthropic Sonnet / OpenAI 4o for production accuracy; routing layer (LangSmith costs dashboard) by case complexity |
+| LLM provider | Cheap `deepseek-direct` model | Anthropic Sonnet / OpenAI 4o for production accuracy; routing layer (LangSmith costs dashboard) by case complexity |
 | Checkpointer | `MemorySaver` (in-memory, lost on cold start) | `PostgresSaver` from `@langchain/langgraph-checkpoint-postgres` — durable threads survive restarts |
 | Auth | None — demo URL is unauthenticated | SSO (Okta / Azure AD); per-procurement-owner identity threaded through to `human_decision.decided_by` |
 | Audit log | In-memory `tools_called` array on the packet | Append-only Postgres table with WORM semantics; per-case immutable history |
@@ -93,6 +93,79 @@ Productionization adds layers — auth, RBAC, audit — but does not relax these
 constraints. A v3 with a "send email on approve" toggle is a different product
 and would require a fresh policy review.
 
+## Next steps — accuracy and latency (the caveats I'd improve first if given more time)
+
+On the 2026-05-13 dataset bench, `LLM_PROVIDER=anthropic-only`
+landed at **14/15 (93%)** with these per-case wall times:
+
+| Case      | Wall time | Notes                                |
+|-----------|-----------|--------------------------------------|
+| case_001  | 173.7s    | Medium risk, PII, 4 flags emitted    |
+| case_002  | 44.3s     | Low risk, renewal, 2 flags emitted   |
+| case_003  | 140.3s    | High risk, restricted PII + AI, 6 flags · escalate |
+| Mean      | 119.4s    |                                      |
+| p95       | ~170s     | n=3                                  |
+
+Accuracy is at target. Latency is the standing caveat — a single
+**~2-minute mean wall time per case** isn't a UX a procurement owner
+will tolerate even once a day, let alone for a queue of 20 vendors.
+The bottleneck is the single thinking-adaptive Structured Outputs
+call in `runLlmComposition` (Sonnet 4.6, `max_tokens=16000`, thinking
+on). Treating each lever in order of impact:
+
+1. **Stream the structured output to the UI.** Today the
+   `/api/run/[case]` POST blocks for the full duration, then the
+   client renders the packet in one frame. Streaming the JSON chunks
+   into a partial packet renderer turns 120s of "blank canvas" into
+   120s of progressive build-out — same wall time, completely
+   different perceived latency. The Vercel 10s function timeout
+   resets per chunk on streaming, which is why this is the obvious
+   first move.
+2. **Tier the model by case complexity.** case_002 (low-risk
+   renewal, 2 flags, 44s) doesn't need thinking-adaptive — Haiku 4.5
+   with thinking off would land it in under 10s. Route by
+   `(data_class, risk_tier, doc_completeness)` before the LLM call:
+   simple cases → Haiku, borderline cases → Sonnet, restricted-data
+   cases → Sonnet + thinking. The classifier already produces all
+   three signals deterministically.
+3. **Decompose the single structured call into a 3-step pipeline.**
+   The scaffold is already in `LLM_PIPELINE_MODE=3step` (default off,
+   shipped in v0.10.2 Item 12 but not wired into the default path).
+   Three small structured calls — flags → action → drafts —
+   parallelize cleanly (drafts can run while action is being
+   determined), and each chunk is small enough that grammar
+   compilation overhead drops. Expected mean wall time: 40–60s with
+   thinking still on, 15–25s with thinking off for non-borderline
+   cases.
+4. **Cache the citation pre-extraction.** `extractCandidateClauses`
+   (the heuristic clause indexer) re-runs on every case but the
+   policy docs only change when Legal updates them. Hash the
+   `(trigger_set, policy_doc@commit_sha)` tuple and cache the
+   candidate clauses; saves ~50ms per case today, more once the
+   ranking complexity grows.
+5. **Move flag-count-exact onto a deterministic post-filter.** The
+   only rubric point we drop is case_001's flag-count-exact (4 vs.
+   target 3). Once flags are emitted, a deterministic dedupe pass
+   over `(policy_doc, section, recipient)` tuples could close that
+   gap without further LLM calls — at the cost of trading off some
+   recall on legitimately-distinct flags that cite the same section.
+   Worth landing only after the streaming/tiering work above, since
+   it's a tighter scope change.
+6. **Loosen the eval rubric or add a "rationale faithfulness" check.**
+   The 5-point rubric is structural — it doesn't check that the
+   recommendation prose matches the deterministic tool outputs.
+   Catching the kind of "approve with follow-up — request missing
+   items" prose that ships even when `validate_required_documents`
+   says all docs present requires a 6th check (LLM-as-judge or a
+   regex contradiction-finder against the tool audit trail). Higher
+   value than chasing the last 1-2 points of the structural rubric.
+
+What I would *not* do first: swap the model out for a faster
+provider (DeepSeek, gpt-4o-mini). Anthropic Sonnet 4.6 with
+thinking is where the accuracy lift came from — losing it to save
+latency is a regression on the harder dimension. The streaming +
+tiering moves above keep the model and shrink the experienced wait.
+
 ## What I'd build first
 
 If this prototype landed in a real codebase Monday morning, my week-1 priorities
@@ -111,8 +184,47 @@ in order:
 5. **Policy-doc versioning** — when Legal updates a policy mid-quarter, every
    in-flight case needs to re-evaluate. `policy_doc@commit_sha` is the cheapest
    way to make that auditable.
+6. **Ambient prompt pill (deferred)** — v0.6 mocks shipped a bottom-of-canvas
+   prompt bar for ad-hoc policy Q&A and slash commands (`/run case_xxx`,
+   `/explain <flag>`, `/show audit`). Removed from the prototype because it had
+   no backing handler — the affordance promised conversation it couldn't
+   deliver. Productionizing it means a real Q&A surface backed by the LangGraph
+   policy-RAG path plus a slash-command router; ship only once procurement
+   owners ask for it (the Run button + case tabs already cover the demo flow).
 
 What I'd resist building first, even if asked: a vendor-facing portal, a
 multi-step approval routing engine, a mobile UI. All of those are downstream of
 proving the agent's verdicts are within tolerance, and proving that takes the
 eval set in Phase 1.
+
+## Deferred from the initial demo deploy
+
+The take-home demo URL ships as a single Vercel project on Pro tier — enough to
+let an HM click through case_001/002/003 end-to-end without hitting the 10s
+Hobby function ceiling. The six items below are conscious omissions, each
+load-bearing in production but not in a 4–6 hour take-home judged on judgment
+and architecture. Calling them out so the line between "demo trade-off" and
+"would absolutely ship this" is explicit.
+
+1. **Docker / container packaging.** A single Vercel function bundle covers the
+   demo. Containers matter in Phase 2 once integrations (Workday, NetSuite,
+   Ironclad) need sidecar workers and a queue. Premature for one URL.
+2. **PostgresSaver checkpointer swap.** First-priority Phase 1 item per
+   "What I'd build first" §1. `MemorySaver` is acceptable for the demo because
+   threads are explicitly OK to lose on Vercel cold start — every HM click
+   re-runs the agent from scratch by design.
+3. **SSO / Okta auth.** Phase 2 per §"Phase 2 — Integrations." The demo URL is
+   intentionally unauthenticated — a take-home reviewer shouldn't have to log
+   in. `human_decision.decided_by` is the literal string "operator" until SSO
+   threads a real subject in.
+4. **Custom domain.** `*.vercel.app` is the correct domain for a take-home —
+   the URL is ephemeral, the work is what's being evaluated. Custom domains
+   arrive with SSO and tenant routing in Phase 2.
+5. **LangSmith tracing on the initial deploy.** Phase 1 observability per §3.1.
+   Deferred from the first deploy to keep the failure surface small — every
+   extra env var is a place the demo can silently break. Flip on via
+   `LANGCHAIN_TRACING_V2=true` if HMs ask about observability mid-review.
+6. **GitHub Actions / CI wiring.** Vercel auto-runs `pnpm build` on every push
+   — that's the only CI a take-home demo needs. Real CI (eval bench as a
+   regression gate per Phase 1, drift detection on `docs/*.md`) is Phase 1
+   work, not deploy-day work.

@@ -35,15 +35,36 @@ edit/approve in the confirmation card.
 
 ### Run a real LLM
 
+Default chain: **Anthropic Sonnet 4.6 (thinking adaptive) primary, DeepSeek
+fallback.** Anthropic supplies native Structured Outputs
+(`withStructuredOutput(schema, { method: 'jsonSchema' })`) so the one LLM call
+this app makes is grammar-constrained; DeepSeek catches Anthropic rate-limits /
+outages mid-demo without changing config.
+
 ```bash
-echo 'OPENROUTER_API_KEY=sk-or-v1-…' >> .env.local
-echo 'LLM_PROVIDER=openrouter'      >> .env.local
+echo 'ANTHROPIC_API_KEY=sk-ant-…'    >> .env.local
+echo 'DEEPSEEK_API_KEY=sk-…'         >> .env.local   # REQUIRED for production deploys — Anthropic→DeepSeek fallback keeps the URL alive when Anthropic 429s or hits the spend cap
+echo 'LLM_PROVIDER=anthropic'        >> .env.local
 pnpm dev
 ```
 
-Free OpenRouter models default to `deepseek/deepseek-chat:free`; override with
-`OPENROUTER_MODEL`. For higher-quality demo runs, set `LLM_PROVIDER=deepseek-direct`
-and `DEEPSEEK_API_KEY=…` to hit DeepSeek's native endpoint.
+Other modes: `LLM_PROVIDER=anthropic-only` (Anthropic, no fallback — used by
+`pnpm eval:dataset`), `LLM_PROVIDER=deepseek` (DeepSeek primary with OpenRouter
+fallback, legacy), `LLM_PROVIDER=deepseek-direct`, `LLM_PROVIDER=openrouter`.
+Defaults: `claude-sonnet-4-5-20250929` (Anthropic), `deepseek-chat` (DeepSeek),
+`deepseek/deepseek-chat:free` (OpenRouter); override with `ANTHROPIC_MODEL` /
+`DEEPSEEK_MODEL` / `OPENROUTER_MODEL`.
+
+| Env var | Default | Purpose |
+|---|---|---|
+| `LLM_PROVIDER` | `mock` | `anthropic` \| `anthropic-only` \| `deepseek` \| `deepseek-direct` \| `openrouter` \| `mock` |
+| `ANTHROPIC_API_KEY` | — | Required for `anthropic`/`anthropic-only` |
+| `ANTHROPIC_MODEL` | `claude-sonnet-4-5-20250929` | Override Anthropic model id |
+| `ANTHROPIC_EFFORT` | `medium` | Thinking effort: `low` \| `medium` \| `high` (applied when thinking is enabled) |
+| `ANTHROPIC_THINKING_BUDGET` | (model default) | Override the thinking-token budget if a single case stalls |
+| `DEEPSEEK_API_KEY` | — | **Required** for production deploys — composeWithFallback routes here when Anthropic 429s or hits the spend cap. Also required for `deepseek` / `deepseek-direct` modes. |
+| `LLM_PIPELINE_MODE` | `single` | `single` (one structured call) or `3step` (decompose; experimental, default off) |
+| `LLM_DEBUG_BINDING` | unset | When `=1`, logs the wire-format binding payload once on each LLM call — verify `thinking` + `output_config.format.type === 'json_schema'` both present |
 
 > **Stale-env-var warning**: `LLM_PROVIDER=mock` left in your shell silently
 > serves fixtures even on a real-key build. The dev server logs the active
@@ -69,11 +90,10 @@ src/
     ConfirmationCard.tsx        # HITL inline (operator only)
     CitationChip.tsx            # opens PolicyDrawer
     PolicyDrawer.tsx            # verbatim quote + highlighted source
-    AmbientPromptPill.tsx       # /run case_xxx slash command
     RunEmpty.tsx                # pre-run CTA
   lib/
     agent/
-      graph.ts                  # 13-node StateGraph + MemorySaver
+      graph.ts                  # 14-node StateGraph + MemorySaver
       nodes.ts                  # node bodies; LLM nodes branch on activeProvider()
       tools.ts                  # 8 PNG-named tools (deterministic TypeScript)
       schemas.ts                # Zod (one-to-one with the spec's Pydantic shapes)
@@ -120,6 +140,24 @@ pnpm typecheck   # tsc --noEmit
 pnpm build       # next build
 pnpm dev         # then click each case + Run + Approve
 ```
+
+### Accuracy bench
+
+`pnpm eval:dataset` scores the 3 materialized cases against
+`eval/dataset.json` using a 5-point rubric (flag count in range,
+flag count exact, action match, risk match, severity-mix block match).
+
+| Provider                                       | Overall      | Notes |
+|------------------------------------------------|--------------|-------|
+| `mock` (deterministic fixtures)                | 15/15 100%   | Floor — graph plumbing |
+| `anthropic-only` (sonnet 4.6 · thinking)       | **14/15 93%** (2026-05-13) | action / risk / severity all 3/3; flag-count-exact 2/3 |
+
+Latency on the same run: case_001 174s · case_002 44s · case_003
+140s (mean 119s, p95 ~170s). The single thinking-adaptive structured
+call is the bottleneck — see [`PRODUCTIONIZATION.md`](./PRODUCTIONIZATION.md)
+"Next steps — accuracy and latency" for the specific levers I'd
+pull next. Full per-check breakdown and run logs in
+[`eval/README.md`](./eval/README.md).
 
 ## Deploy
 

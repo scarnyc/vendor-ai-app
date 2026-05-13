@@ -13,6 +13,7 @@ Thumbs.db
 .env
 .env.local
 .env.*.local
+.env.local.bak
 *.pem
 *.key
 
@@ -54,3 +55,11 @@ coverage/
 
 # TheAuditor index (per-machine)
 .pf/
+
+# Local-only test/QA output
+artifacts/
+.playwright-cli/
+
+# Stray local files that shouldn't ship
+Screenshot *.png
+/architecture.html

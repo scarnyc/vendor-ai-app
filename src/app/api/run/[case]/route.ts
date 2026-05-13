@@ -2,9 +2,11 @@ import { NextRequest, NextResponse } from 'next/server';
 import { Command } from '@langchain/langgraph';
 import { graph, seedState } from '@/lib/agent/graph';
 import { CASE_IDS } from '@/lib/cases';
+import { getProviderInfo } from '@/lib/agent/llm';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
+export const maxDuration = 300;
 
 /**
  * POST /api/run/[case]
@@ -47,6 +49,7 @@ export async function POST(
         state: existing.values,
         next: existing.next,
         interrupted: true,
+        provider: getProviderInfo(),
       });
     }
 
@@ -64,6 +67,7 @@ export async function POST(
       state: finalSnap.values,
       next: finalSnap.next,
       interrupted: (finalSnap.next?.length ?? 0) > 0,
+      provider: getProviderInfo(),
     });
   } catch (err) {
     const msg = err instanceof Error ? err.message : 'unknown error';
@@ -93,5 +97,6 @@ export async function GET(
     next: snap.next,
     interrupted: (snap.next?.length ?? 0) > 0,
     has_run: Object.keys(snap.values ?? {}).length > 0,
+    provider: getProviderInfo(),
   });
 }
