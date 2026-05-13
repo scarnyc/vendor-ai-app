@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-<title>Vendor Triage — Agent State Graph</title>
+<title>Vendor AI — Agent State Graph (v0.6)</title>
 <link rel="preconnect" href="https://fonts.googleapis.com" />
 <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;600;700&family=Geist:wght@400;500;600&family=Geist+Mono:wght@400;500&display=swap" rel="stylesheet" />
 <script src="https://cdn.jsdelivr.net/npm/mermaid@11/dist/mermaid.min.js"></script>
@@ -67,17 +67,31 @@
     background: var(--surface-2); padding: 1px 6px; border-radius: 4px;
     color: var(--accent);
   }
+  td .humanized {
+    display: block;
+    color: var(--text); font-size: 13px;
+    margin-bottom: 3px;
+  }
   .annot {
     color: var(--text-mute); font-size: 12px; margin-top: 14px;
     padding: 12px 14px; border-left: 2px solid var(--accent);
     background: var(--accent-soft); border-radius: 0 6px 6px 0;
   }
+  .annot strong { color: var(--text); }
+  .delta {
+    display: inline-block;
+    padding: 2px 8px; border-radius: 999px;
+    background: var(--accent-soft); border: 1px solid rgba(142, 137, 255, 0.45);
+    color: var(--accent); font-size: 10.5px; font-weight: 600;
+    text-transform: uppercase; letter-spacing: 0.06em;
+    margin-left: 8px; vertical-align: middle;
+  }
 </style>
 </head>
 <body>
   <div class="container">
-    <h1>Vendor Triage — Agent State Graph</h1>
-    <div class="sub">Aligned 1:1 with <code style="font-family: var(--font-mono); color: var(--accent);">tools/Agent process flow.png</code>. LangGraph.js nodes, deterministic tools, HITL gate per SPEC §9.</div>
+    <h1>Vendor AI — Agent State Graph <span class="delta">v0.6</span></h1>
+    <div class="sub">Aligned 1:1 with <code style="font-family: var(--font-mono); color: var(--accent);">tools/Agent process flow.png</code>, with two v0.6 additions: an explicit <code style="font-family: var(--font-mono); color: var(--accent);">await_run</code> initial state and an edit-and-re-run loop edge. LangGraph.js nodes, deterministic tools, HITL gate per SPEC §9.</div>
 
     <div class="legend">
       <span class="chip"><span class="sw" style="background: var(--accent);"></span> Graph node</span>
@@ -85,37 +99,41 @@
       <span class="chip"><span class="sw" style="background: var(--warn);"></span> Decision branch</span>
       <span class="chip"><span class="sw" style="background: var(--danger);"></span> Human gate (interrupt)</span>
       <span class="chip"><span class="sw" style="background: var(--success);"></span> Terminal</span>
+      <span class="chip"><span class="sw" style="background: var(--accent); border-radius: 999px;"></span> Operator press</span>
     </div>
 
     <div class="panel">
       <pre class="mermaid">
 flowchart TD
   start(["▶  Start"]):::terminal
-  parse["parse_inputs<br/><span style='font-family:Geist Mono;font-size:10px;color:#9ca'>xlsx · pdf · csv · md · txt</span>"]:::node
-  validate["validate_required_documents()"]:::tool
+  await(("await_run<br/><span style='font-family:Geist Mono;font-size:10px;color:#cfc7ff'>▶ operator press · Run agent</span>")):::press
+  parse["Parse inputs<br/><span style='font-family:Geist Mono;font-size:10px;color:#9ca'>xlsx · pdf · csv · md · txt</span>"]:::node
+  validate["Document validation<br/><span style='font-family:Geist Mono;font-size:10px;color:#7cb6f2'>validate_required_documents</span>"]:::tool
   branch{"Required<br/>fields complete?"}:::branch
 
   %% YES branch
-  normalize["normalize_facts<br/><span style='font-family:Geist Mono;font-size:10px;color:#9ca'>vendor · ACV · term · cost_center · data_desc</span>"]:::node
-  budget["lookup_budget()"]:::tool
-  dup["check_existing_vendor()"]:::tool
-  tcv["calculate_total_contract_value()"]:::tool
-  classify["classify_data_sensitivity()"]:::tool
-  approvals["determine_required_approvals()"]:::tool
-  packet["prepare_decision_packet"]:::node
+  normalize["Normalize facts<br/><span style='font-family:Geist Mono;font-size:10px;color:#9ca'>vendor · ACV · term · cost_center · data_desc</span>"]:::node
+  budget["Budget lookup<br/><span style='font-family:Geist Mono;font-size:10px;color:#7cb6f2'>lookup_budget</span>"]:::tool
+  dup["Existing-vendor check<br/><span style='font-family:Geist Mono;font-size:10px;color:#7cb6f2'>check_existing_vendor</span>"]:::tool
+  tcv["Total contract value<br/><span style='font-family:Geist Mono;font-size:10px;color:#7cb6f2'>calculate_total_contract_value</span>"]:::tool
+  classify["Data-sensitivity classification<br/><span style='font-family:Geist Mono;font-size:10px;color:#7cb6f2'>classify_data_sensitivity · LLM</span>"]:::tool
+  approvals["Required approvals<br/><span style='font-family:Geist Mono;font-size:10px;color:#7cb6f2'>determine_required_approvals · LLM</span>"]:::tool
+  packet["Prepare decision packet<br/><span style='font-family:Geist Mono;font-size:10px;color:#9ca'>LLM compose summary + flags</span>"]:::node
 
   %% NO branch
-  missing["identify_missing_items"]:::node
-  followup["draft_vendor_followup()<br/><span style='font-family:Geist Mono;font-size:10px;color:#fc6'>DRAFT — never sent autonomously</span>"]:::tool
-  escalate["escalate_to_human()"]:::tool
+  missing["Identify missing items"]:::node
+  followup["Vendor follow-up draft<br/><span style='font-family:Geist Mono;font-size:10px;color:#fc6'>draft_vendor_followup · DRAFT — never sent autonomously</span>"]:::tool
+  escalate["Escalation ticket<br/><span style='font-family:Geist Mono;font-size:10px;color:#7cb6f2'>escalate_to_human</span>"]:::tool
 
   %% Citation guard then HITL
-  guard["validate_citations<br/><span style='font-family:Geist Mono;font-size:10px;color:#9ca'>quotes ⊆ policy text</span>"]:::node
-  hitl(("HITL · interrupt()<br/>Approve · Edit · Reject · Send draft")):::hitl
-  emit["emit_final_packet"]:::node
+  guard["Validate citations<br/><span style='font-family:Geist Mono;font-size:10px;color:#9ca'>quotes ⊆ policy text · no hallucination</span>"]:::node
+  hitl(("HITL · interrupt()<br/>Approve · Copy draft<br/>Edit &amp; re-run · Reject + escalate")):::hitl
+  emit["Emit final packet"]:::node
   done(["■  End"]):::terminal
 
-  start --> parse --> validate --> branch
+  start --> await
+  await -.->|"Command(resume='run')"| parse
+  parse --> validate --> branch
   branch -- "YES (complete)" --> normalize
   normalize --> budget --> dup --> tcv --> classify --> approvals --> packet
   packet --> guard
@@ -125,7 +143,8 @@ flowchart TD
   escalate --> guard
 
   guard --> hitl
-  hitl -->|Command resume| emit
+  hitl -->|"Command(resume='approve' | 'reject')"| emit
+  hitl -.->|"Command(resume='edit', forwardedProps)<br/>re-run LLM nodes only"| classify
   emit --> done
 
   classDef node fill:#231f3a,stroke:#8E89FF,stroke-width:1.5px,color:#f1f1f4,rx:8,ry:8;
@@ -133,34 +152,47 @@ flowchart TD
   classDef branch fill:#3a3320,stroke:#dba85a,stroke-width:1.5px,color:#fff,rx:6,ry:6;
   classDef hitl fill:#3b2530,stroke:#f08c8c,stroke-width:2px,color:#fff;
   classDef terminal fill:#1f3326,stroke:#8be0a8,stroke-width:1.2px,color:#dff8e7;
+  classDef press fill:#2a2540,stroke:#8E89FF,stroke-width:2px,stroke-dasharray:4 3,color:#f1f1f4;
       </pre>
     </div>
 
     <div class="annot">
-      <strong>SPEC §9 enforcement.</strong> The graph contains no edge that emits an external message, accepts contract terms, or marks spend approved without a <code style="font-family: var(--font-mono);">Command(resume=…)</code> from the human gate. <code style="font-family: var(--font-mono);">draft_vendor_followup</code> only writes a draft into the packet; sending requires Priya's button click. <code style="font-family: var(--font-mono);">validate_citations</code> rejects flags whose quoted policy text isn't a verbatim substring of the cited doc — closes the no-hallucination loop before HITL.
+      <strong>v0.6 graph deltas.</strong> (1) <code style="font-family: var(--font-mono);">await_run</code> is a new initial state — selecting a case in the canvas tabs loads metadata only; the graph blocks until the operator presses <em>Run agent</em>. This makes case selection cheap (no auto-LLM) and matches how procurement reviewers actually work. (2) The dashed edge from HITL back to <code style="font-family: var(--font-mono);">classify_data_sensitivity</code> is the <em>edit-and-re-run loop</em> — Priya's edits flow as <code style="font-family: var(--font-mono);">forwardedProps</code>, only the LLM-driven downstream nodes re-run, and the deterministic tools (budget · vendor · TCV · validate) short-circuit via memoized state because their inputs haven't changed.
+    </div>
+
+    <div class="annot" style="margin-top: 10px; border-left-color: var(--danger); background: rgba(240, 140, 140, 0.10);">
+      <strong>SPEC §9 enforcement.</strong> The graph contains no edge that emits an external message, accepts contract terms, or marks spend approved without a <code style="font-family: var(--font-mono);">Command(resume=…)</code> from the human gate. <code style="font-family: var(--font-mono);">draft_vendor_followup</code> only writes a draft into the packet; sending requires Priya copying it out by hand (no Send button anywhere — see DESIGN.md §10). <code style="font-family: var(--font-mono);">validate_citations</code> rejects flags whose quoted policy text isn't a verbatim substring of the cited doc — closes the no-hallucination loop before HITL. The edit-and-re-run loop preserves these constraints because it re-enters the same gate: any state mutation that would emit, accept, or finalize must still pass through HITL on the next pass.
     </div>
 
     <h2>Tool catalog (the 8 PNG-named tools)</h2>
     <div class="panel">
       <table>
-        <thead><tr><th>Tool</th><th>Purpose</th><th>Inputs → outputs</th></tr></thead>
+        <thead><tr><th>Tool (display label · function name)</th><th>Purpose</th><th>Inputs → outputs</th></tr></thead>
         <tbody>
-          <tr><td><code>validate_required_documents</code></td><td>Confirm all 5 input types are present and parseable for the case folder.</td><td>case_id → { present: string[], missing: string[], parse_errors: string[] }</td></tr>
-          <tr><td><code>lookup_budget</code></td><td>Read budget_lookup.csv for cost-center remaining + owner.</td><td>cost_center → { dept, remaining, owner, ok_for_acv }</td></tr>
-          <tr><td><code>check_existing_vendor</code></td><td>Fuzzy-match vendor_register.csv to flag duplicates / pre-existing records.</td><td>vendor_name → { match_id, confidence, status, category }</td></tr>
-          <tr><td><code>calculate_total_contract_value</code></td><td>TCV = ACV × term_months / 12; preserve one-time fees separately per finance policy.</td><td>(acv, term_months, one_time) → { tcv, one_time, term_months }</td></tr>
-          <tr><td><code>classify_data_sensitivity</code></td><td>Map data description to 4-way enum (public · internal · confidential · restricted).</td><td>data_description → { data_class, drivers[] }</td></tr>
-          <tr><td><code>determine_required_approvals</code></td><td>Apply finance matrix + legal + security policies; derive approver list and recommended action.</td><td>(risk_tier, acv, tcv, term, payment_terms, data_class) → { approvers[], recommended_action }</td></tr>
-          <tr><td><code>draft_vendor_followup</code></td><td>LLM drafts vendor email naming missing items; returned with <code>DRAFT</code> label, never sent.</td><td>(missing[], vendor_email) → { draft_text }</td></tr>
-          <tr><td><code>escalate_to_human</code></td><td>Emit a structured escalation ticket — does NOT bypass HITL.</td><td>(reason, severity) → { ticket_id, summary }</td></tr>
+          <tr><td><span class="humanized">Document validation</span><code>validate_required_documents</code></td><td>Confirm all 5 input types are present and parseable for the case folder.</td><td>case_id → { present: string[], missing: string[], parse_errors: string[] }</td></tr>
+          <tr><td><span class="humanized">Budget lookup</span><code>lookup_budget</code></td><td>Read budget_lookup.csv for cost-center remaining + owner.</td><td>cost_center → { dept, remaining, owner, ok_for_acv }</td></tr>
+          <tr><td><span class="humanized">Existing-vendor check</span><code>check_existing_vendor</code></td><td>Fuzzy-match vendor_register.csv to flag duplicates / pre-existing records.</td><td>vendor_name → { match_id, confidence, status, category }</td></tr>
+          <tr><td><span class="humanized">Total contract value</span><code>calculate_total_contract_value</code></td><td>TCV = ACV × term_months / 12; preserve one-time fees separately per finance policy.</td><td>(acv, term_months, one_time) → { tcv, one_time, term_months }</td></tr>
+          <tr><td><span class="humanized">Data-sensitivity classification</span><code>classify_data_sensitivity</code></td><td>Map data description to 4-way enum (public · internal · confidential · restricted).</td><td>data_description → { data_class, drivers[] }</td></tr>
+          <tr><td><span class="humanized">Required approvals</span><code>determine_required_approvals</code></td><td>Apply finance matrix + legal + security policies; derive approver list and recommended action.</td><td>(risk_tier, acv, tcv, term, payment_terms, data_class) → { approvers[], recommended_action }</td></tr>
+          <tr><td><span class="humanized">Vendor follow-up draft</span><code>draft_vendor_followup</code></td><td>LLM drafts vendor email naming missing items; returned with <code>DRAFT</code> label, never sent.</td><td>(missing[], vendor_email) → { draft_text }</td></tr>
+          <tr><td><span class="humanized">Escalation ticket</span><code>escalate_to_human</code></td><td>Emit a structured escalation ticket — does NOT bypass HITL.</td><td>(reason, severity) → { ticket_id, summary }</td></tr>
         </tbody>
       </table>
+      <p style="margin: 14px 0 0; color: var(--text-mute); font-size: 12px;">Display labels are what the operator sees on tool-audit cards (DESIGN.md §5.6). Function names stay snake_case in code per the PNG contract.</p>
     </div>
 
     <h2>State + checkpointer</h2>
     <div class="panel">
-      <p style="margin: 0 0 10px;">LangGraph.js graph compiled with <code style="font-family: var(--font-mono); color: var(--accent);">MemorySaver</code> (Vercel ephemeral filesystem). Thread keyed by <code style="font-family: var(--font-mono); color: var(--accent);">?case=001&thread=&lt;uuid&gt;</code> URL params so a refresh after timeout resumes cleanly. Productionization swaps to a Postgres checkpointer for durable HITL state across cold starts.</p>
-      <p style="margin: 0; color: var(--text-mute); font-size: 12.5px;">All nodes stream — Vercel Hobby's 10s function timeout resets on every chunk, so a long completion stays alive as long as bytes flow.</p>
+      <p style="margin: 0 0 10px;">LangGraph.js graph compiled with <code style="font-family: var(--font-mono); color: var(--accent);">MemorySaver</code> (Vercel ephemeral filesystem). Thread keyed by <code style="font-family: var(--font-mono); color: var(--accent);">?case=001&amp;thread=&lt;uuid&gt;</code> URL params so a refresh after timeout resumes cleanly. Productionization swaps to a Postgres checkpointer for durable HITL state across cold starts.</p>
+      <p style="margin: 0 0 10px; color: var(--text-mute); font-size: 12.5px;">All nodes stream — Vercel Hobby's 10s function timeout resets on every chunk, so a long completion stays alive as long as bytes flow.</p>
+      <p style="margin: 0; color: var(--text-mute); font-size: 12.5px;"><strong style="color: var(--text);">Memoization for the re-run loop:</strong> deterministic tool results (<code style="font-family: var(--font-mono);">lookup_budget</code>, <code style="font-family: var(--font-mono);">check_existing_vendor</code>, <code style="font-family: var(--font-mono);">calculate_total_contract_value</code>, <code style="font-family: var(--font-mono);">validate_required_documents</code>) are stored in checkpointer state keyed on their inputs. The <em>edit-and-re-run</em> edge re-enters at <code style="font-family: var(--font-mono);">classify_data_sensitivity</code>; preceding tool nodes are skipped when their input fingerprint matches.</p>
+    </div>
+
+    <h2>Operator vs. recipient (SPEC §9 routing)</h2>
+    <div class="panel">
+      <p style="margin: 0 0 10px;">Only <strong>Procurement</strong> can resolve <code style="font-family: var(--font-mono); color: var(--accent);">await_run</code> or the HITL gate. The 6 recipient lenses (Business Owner · Legal · Security · VP Finance · CFO · Executive) render the same packet filtered to their domain, with action buttons hidden — there is no graph edge a recipient can trigger. Routing happens after Priya approves; recipients act in their own systems (Slack, email, Workday), never inside Vendor AI.</p>
+      <p style="margin: 0; color: var(--text-mute); font-size: 12.5px;">This is a deliberate UX-and-graph choice, not a permissions hack. See DESIGN.md §2 for the full permission table and rationale.</p>
     </div>
   </div>
 
