@@ -4,7 +4,7 @@
 
 A single Next.js 16 app deployed on Vercel. The frontend is a canvas-first
 workbench (React 19 + Tailwind 4) that talks to three REST endpoints under
-`/api/`. Those endpoints drive a LangGraph.js state machine — 13 nodes that
+`/api/`. Those endpoints drive a LangGraph.js state machine — 14 nodes that
 mirror the take-home's PNG flow — and surface the agent's output as a structured
 `DecisionPacket`. A human approval interrupt sits between packet assembly and
 the final emit; nothing leaves the agent without an operator click. The whole
@@ -35,8 +35,13 @@ classify_data_sensitivity ◄────────┐
   │                                │
   ▼                                │ edit_and_rerun
 determine_required_approvals       │ (carries operator edits as forwardedProps;
-  │                                │  deterministic tool outputs are memoized
+  │                                │  deterministic tool outputs are cached
   ▼                                │  in state and not recomputed)
+extract_candidate_clauses          │
+  │  (heuristic clause indexer — keyword-density-ranked
+  │   policy lines fed into the LLM's user message so it
+  │   can quote verbatim; ≥99% verified citations target)
+  ▼                                │
 prepare_decision_packet            │
   │                                │
   ▼                                │
@@ -137,20 +142,35 @@ already-active interrupt.
 
 ## LLM provider switch
 
-`activeProvider()` reads `LLM_PROVIDER`. Three modes:
+`activeProvider()` reads `LLM_PROVIDER`. Four modes:
 
 - **`mock`** — graph nodes branch on `activeProvider() === 'mock'` and pull
   responses from `mocks.ts` keyed by `case_id`. No network, deterministic,
   free. Used for dev/CI/PRs.
+- **`deepseek`** *(recommended for production demo)* — DeepSeek primary
+  (`https://api.deepseek.com`, `deepseek-chat` default), wrapped in
+  `Runnable.withFallbacks()` against an OpenRouter client when
+  `OPENROUTER_API_KEY` is also set. The fallback fires automatically on any
+  primary error (rate-limit, 5xx, timeout) — single demo URL keeps working
+  through DeepSeek hiccups.
+- **`deepseek-direct`** — DeepSeek only, no fallback. Useful when you want to
+  fail loudly instead of silently switching to a free-tier model.
 - **`openrouter`** — `ChatOpenAI` pointed at `https://openrouter.ai/api/v1`
   with `:free` models by default (`deepseek/deepseek-chat:free`, override via
-  `OPENROUTER_MODEL`). Used for the demo deploy.
-- **`deepseek-direct`** — `ChatOpenAI` pointed at DeepSeek's native endpoint.
-  Higher quality if you have a paid key.
+  `OPENROUTER_MODEL`). Free, but rate-limited under load and subject to the
+  Vercel 10s function timeout on cold queues.
 
 Caller-side responsibility: `MockChatModel.invoke()` throws loudly so any node
 that forgets to short-circuit on mock mode fails fast instead of silently
 hitting the network.
+
+The single LLM call site is `runLlmComposition` in `nodes.ts:524` — it
+composes the five narrative fields of the `DecisionPacket` (intake summary,
+policy flags with citations, recommended action, draft internal ticket,
+vendor follow-up draft) from the deterministic facts the tools already
+gathered. Citations are then verbatim-checked by `validate_citations` before
+the human gate, so a fallback model with weaker quoting just produces more
+`agent_citation_unverified` warn flags — never silent hallucinations.
 
 ## Hard product lines (SPEC §9 — where they're enforced)
 
