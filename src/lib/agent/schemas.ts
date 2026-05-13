@@ -247,13 +247,14 @@ export type ToolCallRecord = z.infer<typeof ToolCallRecordSchema>;
  * else is a §9 violation.
  */
 export const HumanDecisionSchema = z.object({
-  // T1.4: Three-button operator model.
-  // - approved: vendor submitted everything; no blockers, no executive approval needed.
-  // - rejected: vendor must resubmit required paperwork.
-  // - escalated: CFO approval is needed (out-of-band executive routing).
+  // Four-button operator model.
+  // - approved: vendor submitted everything; no flags.
+  // - rejected: red flags; vendor must resubmit required paperwork.
+  // - escalated: CEO approval is needed (out-of-band executive routing).
+  // - follow_up: pending — vendor must submit additional paperwork before approval.
   // The agent's recommended_action enum (RecommendedActionSchema) is separate
   // and unchanged — the agent recommends, the human decides.
-  verdict: z.enum(['approved', 'rejected', 'escalated']),
+  verdict: z.enum(['approved', 'rejected', 'escalated', 'follow_up']),
   notes: z.string().nullable(),
   decided_at: z.string(),
   decided_by: z.string(),

@@ -9,19 +9,27 @@ interface Props {
   onSubmit: (decision: HumanDecision) => void;
 }
 
-type Verdict = HumanDecision['verdict'];
+type Verdict = 'approved' | 'rejected' | 'escalated' | 'follow_up';
 
 const VERDICT_LABEL: Record<Verdict, string> = {
-  approved: 'Approved',
-  rejected: 'Rejected — vendor must resubmit',
-  escalated: 'Escalated to CFO',
+  approved: 'Approve',
+  rejected: 'Reject',
+  escalated: 'Escalate',
+  follow_up: 'Pending Follow-up',
 };
 
 const BUTTON_TITLE: Record<Verdict, string> = {
-  approved:
-    'Vendor submitted everything; no flags or executive approval needed.',
-  rejected: 'Vendor needs to resubmit required paperwork.',
-  escalated: 'Route to CFO for executive approval.',
+  approved: 'Vendor submitted everything; no flags',
+  rejected: 'Red flags; vendor must resubmit required paperwork',
+  escalated: 'Route to CEO for executive approval',
+  follow_up: 'Pending — vendor must submit additional paperwork',
+};
+
+const RECOMMENDED_ACTION_TO_VERDICT: Record<string, Verdict | undefined> = {
+  approve: 'approved',
+  approve_with_followup: 'follow_up',
+  escalate: 'escalated',
+  block: 'rejected',
 };
 
 export function ConfirmationCard({ packet, busy, onSubmit }: Props) {
@@ -60,6 +68,9 @@ export function ConfirmationCard({ packet, busy, onSubmit }: Props) {
       } else if (e.shiftKey && (e.key === 'E' || e.key === 'e')) {
         e.preventDefault();
         submit('escalated');
+      } else if (e.shiftKey && (e.key === 'F' || e.key === 'f')) {
+        e.preventDefault();
+        submit('follow_up');
       }
     };
     window.addEventListener('keydown', onKey);
@@ -69,6 +80,10 @@ export function ConfirmationCard({ packet, busy, onSubmit }: Props) {
   if (packet.human_decision) {
     return <DecidedStamp decision={packet.human_decision} />;
   }
+
+  const recommendedVerdict = packet.recommended_action
+    ? RECOMMENDED_ACTION_TO_VERDICT[packet.recommended_action]
+    : undefined;
 
   return (
     <div className="confirm" role="region" aria-label="Operator decision required">
@@ -85,44 +100,58 @@ export function ConfirmationCard({ packet, busy, onSubmit }: Props) {
       <div className="confirm-actions">
         <button
           type="button"
-          className="btn btn-approve"
+          className={`btn btn-approve${recommendedVerdict === 'approved' ? ' btn-recommended' : ''}`}
           onClick={() => submit('approved')}
           disabled={busy}
           title={BUTTON_TITLE.approved}
+          aria-label={recommendedVerdict === 'approved' ? 'Approve (recommended by agent)' : 'Approve'}
         >
           <CheckIcon />
           Approve
         </button>
         <button
           type="button"
-          className="btn btn-reject"
-          onClick={() => submit('rejected')}
+          className={`btn btn-follow-up${recommendedVerdict === 'follow_up' ? ' btn-recommended' : ''}`}
+          onClick={() => submit('follow_up')}
           disabled={busy}
-          title={BUTTON_TITLE.rejected}
+          title={BUTTON_TITLE.follow_up}
+          aria-label={recommendedVerdict === 'follow_up' ? 'Pending Follow-up (recommended by agent)' : 'Pending Follow-up'}
         >
-          <AlertIcon />
-          Reject
+          Pending Follow-up
         </button>
         <button
           type="button"
-          className="btn btn-escalate"
+          className={`btn btn-escalate${recommendedVerdict === 'escalated' ? ' btn-recommended' : ''}`}
           onClick={() => submit('escalated')}
           disabled={busy}
           title={BUTTON_TITLE.escalated}
+          aria-label={recommendedVerdict === 'escalated' ? 'Escalate (recommended by agent)' : 'Escalate'}
         >
           <ArrowUpIcon />
           Escalate
         </button>
+        <button
+          type="button"
+          className={`btn btn-reject${recommendedVerdict === 'rejected' ? ' btn-recommended' : ''}`}
+          onClick={() => submit('rejected')}
+          disabled={busy}
+          title={BUTTON_TITLE.rejected}
+          aria-label={recommendedVerdict === 'rejected' ? 'Reject (recommended by agent)' : 'Reject'}
+        >
+          <AlertIcon />
+          Reject
+        </button>
       </div>
 
       <div className="confirm-kbd-hints" aria-hidden="true">
-        <kbd>Enter</kbd> approve · <kbd>⇧X</kbd> reject · <kbd>⇧E</kbd> escalate
+        <kbd>Enter</kbd> approve · <kbd>⇧F</kbd> follow-up · <kbd>⇧E</kbd> escalate · <kbd>⇧X</kbd> reject
       </div>
 
       <div className="confirm-legend">
-        <div><strong>Approve</strong> — vendor submitted everything; no flags, no executive approval needed.</div>
-        <div><strong>Reject</strong> — vendor needs to resubmit required paperwork.</div>
-        <div><strong>Escalate</strong> — CFO approval is needed.</div>
+        <div><strong>Approve</strong> — vendor submitted everything; no flags.</div>
+        <div><strong>Pending Follow-up</strong> — vendor must submit additional paperwork.</div>
+        <div><strong>Escalate</strong> — CEO approval is needed.</div>
+        <div><strong>Reject</strong> — red flags; vendor must resubmit required paperwork.</div>
       </div>
     </div>
   );
@@ -174,9 +203,13 @@ function ArrowUpIcon() {
 
 function DecidedStamp({ decision }: { decision: HumanDecision }) {
   const when = new Date(decision.decided_at).toLocaleString();
+  const stampLabel =
+    decision.verdict === 'follow_up'
+      ? 'Pending — follow-up sent'
+      : VERDICT_LABEL[decision.verdict as Verdict];
   return (
     <div className="decided-stamp">
-      <strong>{VERDICT_LABEL[decision.verdict]}</strong> by {decision.decided_by} ·{' '}
+      <strong>{stampLabel}</strong> by {decision.decided_by} ·{' '}
       {when}
       {decision.notes ? <div className="case-meta">"{decision.notes}"</div> : null}
     </div>

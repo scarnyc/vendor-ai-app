@@ -105,7 +105,6 @@ src/
       llm.ts                    # 5-mode provider switch + Anthropic→DeepSeek fallback composer
       mocks.ts                  # deterministic fixtures keyed by case_id
     cases.ts                    # case metadata + IDs
-    personas.ts                 # operator/recipient lens definitions
 cases/                          # provided — case_001…003
 docs/                           # provided — 7 policy md files
 tools/                          # provided — budget_lookup.csv, vendor_register.csv, PNG

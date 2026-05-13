@@ -62,7 +62,7 @@ export const MOCK_LLM_OUTPUT: Record<string, MockLlmOutput> = {
           {
             policy_doc: 'finance_approval_matrix',
             section: 'Approval thresholds',
-            quote: '$50,000',
+            quote: '> $50,000',
             verified: false,
           },
         ],
@@ -93,7 +93,7 @@ export const MOCK_LLM_OUTPUT: Record<string, MockLlmOutput> = {
           {
             policy_doc: 'finance_approval_matrix',
             section: 'Approval thresholds',
-            quote: 'business owner',
+            quote: 'Business owner',
             verified: false,
           },
         ],
@@ -194,7 +194,7 @@ export const MOCK_LLM_OUTPUT: Record<string, MockLlmOutput> = {
           {
             policy_doc: 'finance_approval_matrix',
             section: 'Approval thresholds',
-            quote: '$100,000',
+            quote: '> $100,000',
             verified: false,
           },
         ],

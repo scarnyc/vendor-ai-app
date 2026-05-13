@@ -67,7 +67,9 @@ function StatusBadge({
       case 'rejected':
         return <span className="badge b-danger">Rejected — vendor must resubmit</span>;
       case 'escalated':
-        return <span className="badge b-warn">Escalated to CFO</span>;
+        return <span className="badge b-warn">Escalated to CEO</span>;
+      case 'follow_up':
+        return <span className="badge b-info">Pending — follow-up sent</span>;
     }
   }
 
@@ -91,10 +93,10 @@ function StatusBadge({
 function humanizeRecommendation(action: DecisionPacket['recommended_action']): string {
   switch (action) {
     case 'approve_with_followup':
-      return 'approve with follow-up';
+      return 'pending follow-up';
     case 'escalate':
       return 'escalate';
     case 'block':
-      return 'block — do not proceed';
+      return 'reject';
   }
 }

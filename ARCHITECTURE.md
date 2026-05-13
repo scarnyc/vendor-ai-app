@@ -50,7 +50,7 @@ validate_citations
   ▼
 human_approval
   │
-  │ approved · rejected · escalated
+  │ approved · rejected · escalated · follow_up
   ▼
 emit_final ──► END
 ```
@@ -100,8 +100,11 @@ Vercel cold-start within a single warm container.
   recommended action (`approve_with_followup` | `escalate` | `block`),
   optional vendor draft (clearly DRAFT), internal ticket draft, audit trail of
   tool calls, optional `human_decision` (set after HITL).
-- **`HumanDecision`** — `verdict` (approved | rejected | escalated), notes,
-  decided_at/by, optional `edits_applied`.
+- **`HumanDecision`** — `verdict` (approved | rejected | escalated | follow_up), notes,
+  decided_at/by, optional `edits_applied`. The 4th state (`follow_up`) covers
+  the most-common case-folder shape: vendor isn't bad, paperwork isn't done.
+  See `PRODUCTIONIZATION.md` "The Grey Area" for why a 3-state model forced
+  this decision into either premature-Approve or overstated-Reject.
 
 The schema deliberately has **no field that can express "approved by the
 agent"** or **"sent to vendor"**. Approval lives only on `human_decision`,
@@ -123,11 +126,12 @@ The workbench is one page, three logical zones:
 (props in, callbacks out). `useEffect` runs one GET per case per session to
 restore previously-decided state when switching tabs.
 
-The earlier persona-rail design (operator + 6 read-only recipient lenses)
-and ambient prompt pill (bottom-of-canvas slash-command input) were both
-removed before the v0.10 cycle — they added surface area without changing
-the operator's decision path. The single operator is Procurement; the
-canvas IS the artifact view.
+The workbench is operator-only (Procurement) by deliberate scope; the ambient
+prompt pill (bottom-of-canvas slash-command input) was likewise removed before
+the v0.10 cycle — neither changed the operator's decision path. The
+recipient-lens preview views (filtered renders for Legal, Security, CFO, etc.)
+are deferred per `PRODUCTIONIZATION.md` "Recipient-lens preview views —
+deferred"; the canvas IS the artifact view today.
 
 ## HITL pattern
 
@@ -144,8 +148,8 @@ const verdict = interrupt({
 `interrupt()` pauses the graph; the next `graph.invoke(new Command({ resume: X }))`
 returns `X` as the value of that call. `/api/resume` accepts the operator's
 verdict, casts it to `HumanDecision`, and the graph routes via `postHumanRouter`
-to `emit_final` — the router is a constant returner today; all three verdicts
-(`approved`, `rejected`, `escalated`) terminate at `emit_final` (see
+to `emit_final` — the router is a constant returner today; all four verdicts
+(`approved`, `rejected`, `escalated`, `follow_up`) terminate at `emit_final` (see
 `nodes.ts:postHumanRouter` and the `addConditionalEdges('human_approval', …)`
 binding in `graph.ts`). The edit-and-re-run loop-back back through
 `classify_data_sensitivity` is documented as deferred (`PRODUCTIONIZATION.md`

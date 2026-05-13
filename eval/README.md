@@ -55,7 +55,7 @@ the v0.7→v0.8 work surfaced.
 
 ---
 
-## Scoring rubric (5 points per case)
+## Scoring rubric (6 points per case)
 
 Defined in `dataset.json::scoring_rubric` so the runner can't drift:
 
@@ -67,8 +67,9 @@ Defined in `dataset.json::scoring_rubric` so the runner can't drift:
    matches the expected mix (`severity_mix.block > 0` ↔ at least one
    block flag emitted). Catches the "right action, wrong content" failure
    where the agent picks `escalate` but emits no `block` flag.
+6. **`rationale_faithfulness`** — checks rationale prose against deterministic tool output.
 
-Aggregate score is `sum(case.points) / (n_materialized * 5)`.
+Aggregate score is `sum(case.points) / (n_materialized * 6)`.
 
 ---
 
@@ -127,6 +128,8 @@ won't be scored by `eval:dataset` until fixtures land.
 
 Bench: 3 materialized cases × 5-point rubric (flag-count-in-range,
 flag-count-exact, action-match, risk-match, severity-mix block match).
+Numbers below predate the `rationale_faithfulness` 6th metric — re-run
+`pnpm eval:dataset` to score under the 6-point rubric.
 
 ### Accuracy
 

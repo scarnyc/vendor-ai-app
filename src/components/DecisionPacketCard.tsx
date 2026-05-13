@@ -109,7 +109,7 @@ function Flags({
   onCitationClick: (c: PolicyCitation) => void;
 }) {
   // T1.7: Partition by severity so the operator can read at a glance which
-  // flags are blockers (escalate path) vs follow-ups (ship with approval).
+  // flags are blockers (escalate path) vs follow-ups (pending vendor reply).
   // Info-severity flags stay collapsed — they don't change routing.
   const blocks = flags.filter((f) => f.severity === 'block');
   const followups = flags.filter((f) => f.severity === 'warn');
@@ -144,7 +144,7 @@ function Flags({
       {followups.length > 0 && (
         <div style={{ marginBottom: info.length > 0 ? 12 : 0 }}>
           <div className="flags-subhead flags-subhead-followups">
-            Vendor follow-ups (ship with approval) · {followups.length}
+            Vendor follow-ups (pending paperwork) · {followups.length}
           </div>
           <div className="flag-list">
             {followups.map((flag, i) => (
@@ -222,18 +222,18 @@ function Recommendation({ packet }: { packet: DecisionPacket }) {
         : 'recommended';
   const title =
     action === 'block'
-      ? 'Recommended: Block — do not proceed without resolving blocking issues'
+      ? 'Reject — red flags; vendor must resubmit.'
       : action === 'escalate'
-        ? 'Recommended: Escalate to executive sponsor'
-        : 'Recommended: Approve with follow-up';
+        ? 'Escalate — CEO approval required'
+        : 'Pending Follow-up — vendor paperwork pending.';
   // T1.1: The approve_with_followup branch returns null because its old
   // "Request the listed missing items..." subtitle contradicted the
   // deterministic doc-inventory check directly above it.
   const sub =
     action === 'block'
-      ? 'Multiple blocking policy violations; the package cannot be approved as submitted. Operator may reject or escalate to resolve.'
+      ? 'Multiple blocking policy violations; the package cannot proceed as submitted. Operator may reject or escalate to resolve.'
       : action === 'escalate'
-        ? 'Risk pattern exceeds standard routing; escalate to executive sponsor with the audit trail attached.'
+        ? 'Risk pattern exceeds standard routing; escalate to CEO with the audit trail attached.'
         : null;
 
   return (
