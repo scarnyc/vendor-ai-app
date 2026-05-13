@@ -8,6 +8,7 @@ interface Props {
   packet: DecisionPacket;
   lens: LensId;
   onCitationClick: (citation: PolicyCitation) => void;
+  children?: React.ReactNode;
 }
 
 const APPROVER_LABEL: Record<RequiredApprover, string> = {
@@ -20,7 +21,7 @@ const APPROVER_LABEL: Record<RequiredApprover, string> = {
   security: 'Security',
 };
 
-export function DecisionPacketCard({ packet, lens, onCitationClick }: Props) {
+export function DecisionPacketCard({ packet, lens, onCitationClick, children }: Props) {
   const visibleFlags = filterFlagsForLens(packet.policy_flags, lens);
   const riskLabel = packet.risk_tier.charAt(0).toUpperCase() + packet.risk_tier.slice(1);
   const dataLabel = packet.data_class.charAt(0).toUpperCase() + packet.data_class.slice(1);
@@ -48,6 +49,8 @@ export function DecisionPacketCard({ packet, lens, onCitationClick }: Props) {
         <Approvers approvers={packet.required_approvers} />
         <Recommendation packet={packet} />
       </div>
+
+      {children}
     </section>
   );
 }
@@ -201,6 +204,16 @@ function Recommendation({ packet }: { packet: DecisionPacket }) {
 
   return (
     <div className={cls}>
+      <svg
+        className="ic"
+        viewBox="0 0 24 24"
+        fill="none"
+        stroke="currentColor"
+        strokeWidth="1.8"
+        aria-hidden="true"
+      >
+        <path d="M12 2v4M12 18v4M4 12H2M22 12h-2M5.6 5.6l-1.4-1.4M19.8 19.8l-1.4-1.4M5.6 18.4l-1.4 1.4M19.8 4.2l-1.4 1.4" />
+      </svg>
       <div className="recommended-text">
         <div className="recommended-title">{title}</div>
         <div className="recommended-sub">{sub}</div>

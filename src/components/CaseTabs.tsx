@@ -9,7 +9,7 @@ interface Props {
 
 export function CaseTabs({ caseId, onChange }: Props) {
   return (
-    <div className="case-tabs" role="tablist" aria-label="Case selector">
+    <nav className="case-tabs" aria-label="Cases">
       {CASE_IDS.map((id) => {
         const meta = CASES[id];
         const active = id === caseId;
@@ -17,17 +17,16 @@ export function CaseTabs({ caseId, onChange }: Props) {
           <button
             key={id}
             type="button"
-            role="tab"
-            aria-selected={active}
-            aria-current={active ? 'true' : undefined}
+            aria-current={active ? 'page' : undefined}
             className={`case-tab${active ? ' active' : ''}`}
             onClick={() => onChange(id)}
           >
-            <span className="case-tab-id">{id}</span>
-            <span className="case-tab-name">{meta.vendor_name}</span>
+            <span className="tab-id">{id}</span>
+            <span>{meta.short_name}</span>
+            <span className="tab-acv">{meta.acv_short}</span>
           </button>
         );
       })}
-    </div>
+    </nav>
   );
 }

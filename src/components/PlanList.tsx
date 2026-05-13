@@ -26,19 +26,8 @@ export function PlanList({ currentNode, runStatus }: Props) {
   const allDone = runStatus === 'decided' || runStatus === 'escalated';
 
   return (
-    <div className="plan" aria-label="Agent plan">
-      <div className="plan-header">
-        <div className="plan-title">Agent plan</div>
-        <div className="plan-meta">
-          {allDone
-            ? 'complete'
-            : runStatus === 'awaiting_human'
-              ? 'awaiting human approval'
-              : runStatus === 'await_run'
-                ? 'idle'
-                : 'in progress'}
-        </div>
-      </div>
+    <section className="plan" aria-label="Agent run plan">
+      <div className="plan-header">Run plan · {STEPS.length} steps</div>
       <ol>
         {STEPS.map((step, i) => {
           const cls = allDone
@@ -51,11 +40,11 @@ export function PlanList({ currentNode, runStatus }: Props) {
           return (
             <li key={step.node} className={cls}>
               <span className="step-dot" aria-hidden />
-              <span>{step.label}</span>
+              {step.label}
             </li>
           );
         })}
       </ol>
-    </div>
+    </section>
   );
 }

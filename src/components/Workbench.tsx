@@ -11,9 +11,14 @@ import { PlanList } from './PlanList';
 import { ToolAuditCard } from './ToolAuditCard';
 import { DecisionPacketCard } from './DecisionPacketCard';
 import { ConfirmationCard } from './ConfirmationCard';
-import { AmbientPromptPill } from './AmbientPromptPill';
 import { RunEmpty } from './RunEmpty';
 import { PolicyDrawer } from './PolicyDrawer';
+
+interface ProviderInfo {
+  label: string;
+  thinking: boolean;
+  mode: string;
+}
 
 interface RunResponse {
   case_id: CaseId;
@@ -21,6 +26,7 @@ interface RunResponse {
   state: AgentState | null;
   next: string[];
   interrupted: boolean;
+  provider?: ProviderInfo;
 }
 
 export function Workbench() {
@@ -30,6 +36,7 @@ export function Workbench() {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [drawerCitation, setDrawerCitation] = useState<PolicyCitation | null>(null);
+  const [providerInfo, setProviderInfo] = useState<ProviderInfo | null>(null);
   const fetchedCases = useRef<Set<CaseId>>(new Set());
 
   const state = stateByCase[caseId] ?? null;
@@ -43,7 +50,9 @@ export function Workbench() {
     fetch(`/api/run/${caseId}`)
       .then((r) => r.json() as Promise<RunResponse>)
       .then((data) => {
-        if (cancelled || !data.state) return;
+        if (cancelled) return;
+        if (data.provider) setProviderInfo(data.provider);
+        if (!data.state) return;
         setStateByCase((prev) => ({ ...prev, [caseId]: data.state! }));
       })
       .catch(() => {
@@ -55,6 +64,7 @@ export function Workbench() {
   }, [caseId]);
 
   const sync = useCallback((data: RunResponse) => {
+    if (data.provider) setProviderInfo(data.provider);
     if (data.state) {
       setStateByCase((prev) => ({ ...prev, [data.case_id]: data.state! }));
     }
@@ -108,14 +118,6 @@ export function Workbench() {
     [caseId, sync]
   );
 
-  const onPromptRunCase = useCallback(
-    (id: CaseId) => {
-      setCaseId(id);
-      runAgent(id);
-    },
-    [runAgent]
-  );
-
   const runStatus = state?.run_status ?? 'await_run';
   const showRunEmpty = runStatus === 'await_run' && !state?.decision_packet;
   const decisionPacket = state?.decision_packet ?? null;
@@ -126,7 +128,13 @@ export function Workbench() {
       <PersonaRail lens={lens} onChange={setLens} />
 
       <main className="canvas">
-        <CanvasHeader caseMeta={caseMeta} lens={lens} runStatus={runStatus} />
+        <CanvasHeader
+          caseMeta={caseMeta}
+          lens={lens}
+          runStatus={runStatus}
+          decisionPacket={decisionPacket}
+          providerInfo={providerInfo}
+        />
         <CaseTabs
           caseId={caseId}
           onChange={(id) => {
@@ -175,6 +183,7 @@ export function Workbench() {
                       <ToolAuditCard
                         key={`${t.tool_name}-${i}`}
                         record={t}
+                        packet={decisionPacket}
                         defaultOpen={i === 0}
                       />
                     ))}
@@ -182,26 +191,23 @@ export function Workbench() {
                 )}
 
                 {decisionPacket && (
-                  <>
-                    <DecisionPacketCard
-                      packet={decisionPacket}
-                      lens={lens}
-                      onCitationClick={setDrawerCitation}
-                    />
+                  <DecisionPacketCard
+                    packet={decisionPacket}
+                    lens={lens}
+                    onCitationClick={setDrawerCitation}
+                  >
                     <ConfirmationCard
                       packet={decisionPacket}
                       lens={lens}
                       busy={busy}
                       onSubmit={submitDecision}
                     />
-                  </>
+                  </DecisionPacketCard>
                 )}
               </>
             )}
           </div>
         </div>
-
-        <AmbientPromptPill onRunCase={onPromptRunCase} />
       </main>
 
       <PolicyDrawer
