@@ -3,14 +3,17 @@
 ## One-paragraph summary
 
 A single Next.js 16 app deployed on Vercel. The frontend is a canvas-first
-workbench (React 19 + Tailwind 4) that talks to three REST endpoints under
-`/api/`. Those endpoints drive a LangGraph.js state machine — 14 nodes that
+workbench (React 19 + Tailwind 4) that talks to four endpoints under
+`/api/`. The two write endpoints (`POST /api/run/[case]`, `POST /api/resume`)
+return **AG-UI events over Server-Sent Events** so the operator sees tool
+audit cards stream in one-by-one rather than waiting for a single 2-minute
+JSON blob. Those endpoints drive a LangGraph.js state machine — 14 nodes that
 mirror the spec's PNG flow — and surface the agent's output as a structured
 `DecisionPacket`. A human approval interrupt sits between packet assembly and
 the final emit; nothing leaves the agent without an operator click. The whole
 TypeScript stack is intentional: it collapses to one Vercel deploy and lets the
-state schema, the API contract, and the React props all share a single Zod
-source of truth.
+state schema, the API contract, the SSE event vocabulary, and the React props
+all share a single Zod source of truth.
 
 ## State graph
 
@@ -76,16 +79,52 @@ flag is appended. This closes the no-hallucination loop.
 
 ## API surface
 
-| Method | Path | Purpose |
-|---|---|---|
-| POST | `/api/run/[case]` | Seed thread + invoke. If thread already mid-execution (interrupt active), return current snapshot unchanged (idempotent). |
-| GET | `/api/run/[case]` | Snapshot current thread state without advancing. Used for case-tab restoration. |
-| POST | `/api/resume` | Resume a thread that's stopped at the human approval interrupt. Body: `{ case_id, decision: HumanDecision }`. |
-| GET | `/api/policy/[doc]` | Return verbatim policy text + section index for the policy drawer. |
+| Method | Path | Response | Purpose |
+|---|---|---|---|
+| POST | `/api/run/[case]` | **SSE event stream** | Seed thread + drive the graph until it pauses at the HITL gate. Streams AG-UI events; closes on `RUN_PAUSED_AWAITING_HUMAN`. Idempotent: a re-POST on an already-paused thread replays the cached event stream from the in-memory checkpoint. |
+| GET | `/api/run/[case]` | JSON snapshot | Snapshot current thread state without advancing. Used for case-tab rehydration. |
+| POST | `/api/resume` | **SSE event stream** | Resume a thread stopped at the human approval interrupt. Body: `{ case_id, decision: HumanDecision }`. Streams `RUN_RESUMED → STATE_DELTA(human_decision) → RUN_FINISHED`. |
+| GET | `/api/policy/[doc]` | JSON | Verbatim policy text + section index for the policy drawer. |
+
+The two SSE endpoints both pin `runtime = 'nodejs'` and
+`dynamic = 'force-dynamic'` so Vercel doesn't buffer chunks. They share a
+single async-generator core (`src/lib/agent/stream.ts: streamRun`) that emits
+typed events — the route handlers are thin transport wrappers around it,
+which also makes the streaming tests trivial (no HTTP needed).
 
 **`thread_id === case_id`** — one MemorySaver thread per case; case tabs in the
 UI map directly to thread persistence. URL-keyed thread restoration survives
 Vercel cold-start within a single warm container.
+
+## AG-UI event protocol
+
+The SSE endpoints stream events drawn from the AG-UI event vocabulary
+(typed builders in `src/lib/agent/events.ts`, parsed against `AgUiEventSchema`
+on the client for defense-in-depth). No CopilotKit runtime — just the
+vocabulary, hand-rolled over SSE.
+
+| Event | Carries | When |
+|---|---|---|
+| `RUN_STARTED` | `case_id`, `thread_id`, `provider` | First frame of `/api/run`. |
+| `TOOL_CALL_START` | `tool_name`, `args` | Synthesized before each deterministic-tool node executes (via `NODE_TOOL_MAP`). |
+| `TOOL_CALL_END` | `tool_name`, `result`, `duration_ms` | After each tool's `tools_called[]` record lands. |
+| `STATE_DELTA` | `path: string[]`, `value` | Incremental state writes. `path` is an array of keys; `'-'` means array-append. |
+| `STATE_SNAPSHOT` | `decision_packet` | Fires **exactly once**, post-`validate_citations`. The "packet now safe to render" semaphore that gates `DecisionPacketCard`. |
+| `RUN_PAUSED_AWAITING_HUMAN` | *(no body)* | Terminal frame of `/api/run` when the graph hits `humanApprovalNode`. Deliberately *not* `RUN_FINISHED` — the event name keeps the §9 boundary structurally legible. |
+| `RUN_RESUMED` | `human_decision` | First frame of `/api/resume`. |
+| `RUN_FINISHED` | `final_state` | Terminal frame of `/api/resume` once `emit_final` runs. |
+| `RUN_ERROR` | `code`, `message`, `recoverable` | Any unhandled error; the client surfaces a Retry affordance for recoverable codes. |
+
+The reducer's source of truth is the `STATE_DELTA` stream;
+`STATE_SNAPSHOT` is a one-shot render gate, not a state-rebuild source.
+Server emits events through typed builders (`events.runStarted(...)`
+etc.); client parses each frame with `AgUiEventSchema.parse()`, so
+schema drift surfaces as a Zod error rather than a silent UI hang.
+
+The HITL pause closes the stream on the server side; the client opens a
+*new* SSE stream against `/api/resume` once the operator clicks. No
+keepalive on an idling interrupt — fewer Vercel function-minutes burned
+sitting on a paused graph.
 
 ## Schema (Zod)
 
@@ -122,9 +161,21 @@ The workbench is one page, three logical zones:
    ToolAuditCard stack → DecisionPacketCard (the artifact) →
    ConfirmationCard (HITL inline, operator-only).
 
-`Workbench.tsx` is the only stateful component. Children are pure presentational
-(props in, callbacks out). `useEffect` runs one GET per case per session to
-restore previously-decided state when switching tabs.
+`Workbench.tsx` is the only stateful component, and its single source of
+state is the `useStreamingRun(caseId)` hook (`src/hooks/useStreamingRun.ts`).
+The hook owns the SSE lifecycle: GETs `/api/run/[case]` on mount for
+rehydration, opens the SSE POST stream behind an `AbortController`,
+runs a small reducer that turns each AG-UI event into `AgentState` shape,
+and surfaces a `phase` ('idle' | 'countdown' | 'streaming' | 'paused' |
+'finished' | 'error') the components key off. Children are pure
+presentational (props in, callbacks out). A module-scoped in-flight set
+dedupes by `case_id` so React 19 strict-mode's double-mount can't fire
+two paid POSTs per arrival.
+
+The first arrival to a case in a session arms the §5.2 3-second
+countdown card via the same hook; cancelling reverts to the static
+`▶ Run agent` button (§5.4). Return visits to a case whose state is
+still in `MemorySaver` rehydrate instantly with no countdown.
 
 The workbench is operator-only (Procurement) by deliberate scope; the ambient
 prompt pill (bottom-of-canvas slash-command input) was likewise removed before
