@@ -167,8 +167,19 @@ quietly violate SPEC §9 if built carelessly.
   header. Selected pill drives `?case=00N` for shareable links. Three pills:
   `case_001 · Northstar`, `case_002 · Workspace Depot`, `case_003 · TalentPulse`.
   Each shows the vendor name in `--font-ui` plus the ACV in `--font-mono`.
-- **Forbidden:** auto-running on tab switch. Tabs load metadata only; the
-  Run button (§5.4) is the only thing that fires the LangGraph stream.
+- **Auto-start exception (added with streaming refactor):** on the
+  **first arrival to a given case in a given session**, the canvas may
+  arm a **3-second countdown card** that auto-starts the agent. The
+  countdown displays `Auto-running triage for <vendor> in 3…2…1…` plus an
+  always-visible **Cancel** button and a **Start now** button. Cancelling
+  reverts to the static `▶ Run agent` button (§5.4 fallback). Cost
+  discipline is preserved by capping auto-starts to **one paid run per
+  case per session** — return visits rehydrate from MemorySaver without
+  re-running. Switching to a tab whose state was lost (cold worker) also
+  re-arms the countdown so the operator gets the same affordance.
+- **Forbidden:** auto-running on every tab switch. The countdown only fires
+  on the first arrival to a case per session; subsequent tab switches that
+  hit cached state rehydrate instantly with no countdown.
 
 ### 5.3 Canvas Header
 
@@ -185,12 +196,18 @@ quietly violate SPEC §9 if built carelessly.
 ### 5.4 Run Button
 
 - **Purpose:** explicit operator-driven trigger. Selecting a case loads
-  metadata only; the agent does nothing until Run is pressed.
+  metadata only; the agent does nothing until Run is pressed (or the
+  §5.2 first-visit countdown elapses).
 - **Required:** a primary-styled button rendered inside the canvas above
   the PlanList region when `run_status === "await_run"`. Disappears once
-  the stream starts; replaced by the live PlanList.
-- **Forbidden:** any auto-run on case-tab switch. Auto-run would defeat
-  cost discipline and surprises the operator.
+  the stream starts; replaced by the live PlanList. After the §5.2
+  countdown is cancelled, this static button is the fallback control —
+  the operator must press it explicitly to run.
+- **Forbidden:** auto-running on every case-tab switch. The §5.2
+  first-visit-per-session countdown is the ONLY auto-run path; every
+  subsequent visit must rehydrate from cache without re-running, and a
+  cancelled countdown must surface the static Run button (no silent
+  re-arming on the same visit).
 
 ### 5.5 PlanList
 

@@ -106,29 +106,23 @@ landed at **14/15 (93%)** with these per-case wall times:
 | Mean      | 119.4s    |                                      |
 | p95       | ~170s     | n=3                                  |
 
-Accuracy is at target. Latency is the standing caveat — a single
-**~2-minute mean wall time per case** isn't a UX a procurement owner
-will tolerate even once a day, let alone for a queue of 20 vendors.
-The bottleneck is the single thinking-adaptive Structured Outputs
-call in `runLlmComposition` (Sonnet 4.6, `max_tokens=16000`, thinking
-on). Treating each lever in order of impact:
+Accuracy is at target. Wall time is unchanged, but **perceived latency
+has been addressed**: the AG-UI-over-SSE refactor (see
+ARCHITECTURE.md "AG-UI event protocol") turns the previous 120s of
+blank canvas into 120s of progressive build-out — tool audit cards
+land one-by-one as each deterministic tool completes, and the
+DecisionPacket renders the moment `validate_citations` clears. Same
+wall-clock, very different UX. The remaining levers below shrink the
+actual wall time:
 
-1. **Stream the structured output to the UI.** Today the
-   `/api/run/[case]` POST blocks for the full duration, then the
-   client renders the packet in one frame. Streaming the JSON chunks
-   into a partial packet renderer turns 120s of "blank canvas" into
-   120s of progressive build-out — same wall time, completely
-   different perceived latency. The Vercel 10s function timeout
-   resets per chunk on streaming, which is why this is the obvious
-   first move.
-2. **Tier the model by case complexity.** case_002 (low-risk
+1. **Tier the model by case complexity.** case_002 (low-risk
    renewal, 2 flags, 44s) doesn't need thinking-adaptive — Haiku 4.5
    with thinking off would land it in under 10s. Route by
    `(data_class, risk_tier, doc_completeness)` before the LLM call:
    simple cases → Haiku, borderline cases → Sonnet, restricted-data
    cases → Sonnet + thinking. The classifier already produces all
    three signals deterministically.
-3. **Decompose the single structured call into a 3-step pipeline.**
+2. **Decompose the single structured call into a 3-step pipeline.**
    The scaffold is already in `LLM_PIPELINE_MODE=3step` (default off,
    shipped in v0.10.2 Item 12 but not wired into the default path).
    Three small structured calls — flags → action → drafts —
@@ -137,13 +131,13 @@ on). Treating each lever in order of impact:
    compilation overhead drops. Expected mean wall time: 40–60s with
    thinking still on, 15–25s with thinking off for non-borderline
    cases.
-4. **Cache the citation pre-extraction.** `extractCandidateClauses`
+3. **Cache the citation pre-extraction.** `extractCandidateClauses`
    (the heuristic clause indexer) re-runs on every case but the
    policy docs only change when Legal updates them. Hash the
    `(trigger_set, policy_doc@commit_sha)` tuple and cache the
    candidate clauses; saves ~50ms per case today, more once the
    ranking complexity grows.
-5. **Move flag-count-exact onto a deterministic post-filter.** The
+4. **Move flag-count-exact onto a deterministic post-filter.** The
    only rubric point we drop is case_001's flag-count-exact (4 vs.
    target 3). Once flags are emitted, a deterministic dedupe pass
    over `(policy_doc, section, recipient)` tuples could close that
@@ -151,7 +145,7 @@ on). Treating each lever in order of impact:
    recall on legitimately-distinct flags that cite the same section.
    Worth landing only after the streaming/tiering work above, since
    it's a tighter scope change.
-6. **Loosen the eval rubric or add a "rationale faithfulness" check.**
+5. **Loosen the eval rubric or add a "rationale faithfulness" check.**
    The 5-point rubric is structural — it doesn't check that the
    recommendation prose matches the deterministic tool outputs.
    Catching the kind of "approve with follow-up — request missing
@@ -159,12 +153,26 @@ on). Treating each lever in order of impact:
    says all docs present requires a 6th check (LLM-as-judge or a
    regex contradiction-finder against the tool audit trail). Higher
    value than chasing the last 1-2 points of the structural rubric.
+6. **Per-session cache eviction + authenticated SSE session keys.**
+   Today `MemorySaver` is a process-global map keyed by `case_id`,
+   and the SSE endpoints accept any anonymous request — fine for a
+   single-operator demo, untenable in a multi-tenant deploy. The
+   productionization move pairs two changes: (a) swap to a
+   per-session-scoped checkpointer (`<tenant_id>:<operator_id>:<case_id>`)
+   with an eviction policy (LRU plus a hard TTL — 4h matches the
+   procurement workday), and (b) require an authenticated session
+   key on every SSE open. The first prevents one operator's run
+   showing up in another's tab via shared process memory on the same
+   Vercel worker; the second prevents an attacker from opening
+   `POST /api/run/[case]` and burning paid LLM tokens against any
+   case_id they can guess. Both unlock Phase 2 multi-tenant routing
+   below; until they land, treat the demo URL as single-operator.
 
 What I would *not* do first: swap the model out for a faster
 provider (DeepSeek, gpt-4o-mini). Anthropic Sonnet 4.6 with
 thinking is where the accuracy lift came from — losing it to save
-latency is a regression on the harder dimension. The streaming +
-tiering moves above keep the model and shrink the experienced wait.
+latency is a regression on the harder dimension. The tiering and
+3-step moves above keep the model and shrink the experienced wait.
 
 ## Faithfulness audit
 

@@ -83,7 +83,7 @@ names. Don't rename, don't merge, don't omit. Tool I/O contracts are in
 | Command | Purpose |
 |---|---|
 | `pnpm dev` | Local dev server with AIMock LLM (no API costs) |
-| `envchain vendor-ai pnpm dev` | Local dev hitting Anthropic Sonnet 4.6 (default real LLM) |
+| `envchain vendor-ai pnpm dev` | Local dev with `ANTHROPIC_API_KEY` and `LLM_PROVIDER` injected from envchain. Set `LLM_PROVIDER` in the namespace to `anthropic` (recommended; Anthropic + DeepSeek fallback) or `anthropic-only` to actually consume the Anthropic key. envchain-injected values override `.env.local`. |
 | `envchain vendor-ai bash -c 'LLM_PROVIDER=anthropic-only pnpm eval:dataset'` | 5-point eval bench across 3 materialized cases (target ≥14/15) |
 | `LLM_PROVIDER=deepseek pnpm dev` | Legacy DeepSeek path (with OpenRouter fallback) |
 | `pnpm typecheck` | `tsc --noEmit` clean — required before every commit |
@@ -91,11 +91,15 @@ names. Don't rename, don't merge, don't omit. Tool I/O contracts are in
 | `node scripts/qa-packet-render.mjs` | Manual Playwright smoke for the Decision Packet render (run after each bench cycle; not in CI) |
 | `vercel deploy` | Push to Vercel (env vars set in dashboard) |
 
-**Secrets:** the Anthropic console API key lives in envchain namespace
-`vendor-ai` under `ANTHROPIC_API_KEY`. The OAuth token in
+**Secrets + provider switch:** envchain namespace `vendor-ai` holds both
+`ANTHROPIC_API_KEY` (the console key — the OAuth token in
 `hermes-llm/ANTHROPIC_TOKEN` is NOT compatible with the LangChain SDK
-binding — use the console key. `envchain vendor-ai <cmd>` injects it
-for the duration of the wrapped command without exposing it to history.
+binding) AND `LLM_PROVIDER` (the active provider switch — currently
+`anthropic`). To inspect:
+`envchain vendor-ai bash -c 'echo "$LLM_PROVIDER"'`. To update:
+`printf 'anthropic\n' | envchain --set vendor-ai LLM_PROVIDER`.
+envchain-injected values win over `.env.local` because dotenv loads
+before envchain's child env is merged into `process.env`.
 
 ## Stop-chain before commits
 
