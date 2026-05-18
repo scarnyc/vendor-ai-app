@@ -11,16 +11,16 @@
 
 Procurement owners drown in incomplete vendor onboarding packages. A typical
 case requires reconciling five document types (intake form, vendor email, quote,
-security questionnaire, contract excerpt) against seven internal policies —
-classifying risk, computing total contract value, checking the budget, matching
-against existing vendors, and routing to the correct approvers. The work is
-mechanical but high-attention-cost, and the consequences of missing a
-policy-blocking issue (e.g. missing SOC 2 II on customer-PII, AI-training
-opt-outs absent from the quote, cross-border subprocessors without a DPA) are
-real: regulatory exposure, duplicate spend, and stalled deals.
+security questionnaire, contract excerpt) against seven internal policies.
+The work covers classifying risk, computing total contract value, checking the
+budget, matching against existing vendors, and routing to the correct
+approvers. Mechanical, but high-attention-cost. The consequences of missing a
+policy-blocking issue (missing SOC 2 II on customer-PII, AI-training opt-outs
+absent from the quote, cross-border subprocessors without a DPA) are real:
+regulatory exposure, duplicate spend, and stalled deals.
 
-Today, this triage takes a procurement owner ~30 minutes per case and competes
-for attention with vendor follow-up and negotiation. Errors are silent — a
+Today this triage takes a procurement owner ~30 minutes per case and competes
+for attention with vendor follow-up and negotiation. Errors are silent. A
 missed flag becomes Legal's problem six weeks later.
 
 ---
@@ -80,7 +80,7 @@ missed flag becomes Legal's problem six weeks later.
 
 ### Primary persona — Procurement Owner ("Priya")
 
-Owns the case from intake to approval routing. Reviews ~15 vendor packages per
+Owns the case from intake to approval routing. Reviews ~15 vendor packages a
 week. Trusts the policy docs (helped write them) but doesn't enjoy re-reading
 them. Cares about audit trail. Will *not* tolerate a tool that quietly takes
 actions she didn't approve.

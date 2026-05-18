@@ -1,178 +1,162 @@
 # Vendor AI — Procurement Workbench
 
-A prototype for an AI agent that triages vendor onboarding cases against
-seven internal policy docs and produces an editable decision packet for a procurement
-owner to approve, edit, or reject.
+> The agent never approves spend, never sends external messages, never accepts contract language, never makes the final security or privacy decision.
 
-## What it does
+That sentence is SPEC §9. It's the reason this prototype is interesting and
+the reason the schema, the prompts, and every button in the UI were designed
+the way they were. A vendor-onboarding triage agent that ships *recommendations*
+to one named human (Priya, the procurement owner), then stops. The agent reads
+five document types per case, walks fourteen LangGraph nodes against seven
+internal policy docs, and produces an editable `DecisionPacket`. Priya
+approves, edits, rejects, or asks for a follow-up. Nothing leaves the building
+without her click.
 
-1. Reads a vendor case folder (`cases/case_NNN/`) — intake xlsx, vendor email, quote
-   csv, security questionnaire, contract pdf.
-2. Walks a LangGraph state machine that mirrors the assignment's PNG flow 1:1:
-   parse → validate → branch on completeness → run 8 deterministic tools →
-   classify data sensitivity → determine approvers → assemble decision packet →
-   validate every policy citation → **stop at a human approval gate**.
-3. Surfaces the packet in a canvas-first workbench (no chat feed). The procurement
-   owner can edit risk tier, add an approver, edit the vendor draft, then choose
-   one of three verdicts: **Approve**, **Reject**, or **Escalate**. (An
-   "Edit & re-run" loop-back from the human gate back through classification
-   was scoped but deferred — `postHumanRouter` always routes to `emit_final`
-   today; see [`PRODUCTIONIZATION.md`](./PRODUCTIONIZATION.md).)
+## What you'll see when it runs
 
-The agent **never** approves spend, sends external messages, accepts contract
-language, or makes the final security/privacy decision. These constraints are
-baked into the schema (no field can express "approved" or "sent") and the system
-prompt.
+1. Land on `localhost:3000`, click the **Case 001** pill, hit **Run agent**.
+2. Audit cards stream in one at a time as the deterministic tools fire
+   (`validate_required_documents`, `lookup_budget`, `check_existing_vendor`,
+   …). No two-minute JSON blob. No spinner-of-faith.
+3. The `DecisionPacketCard` renders with a verdict, a recommended action, and
+   every flag citing the policy doc + section + verbatim quote it came from.
+   Click a citation to open the policy drawer.
+4. The HITL confirmation card appears inline: Approve, Reject, Request
+   follow-up, Escalate. The graph is paused on `interrupt()` until you click.
 
-## Quick start
+## Setup
+
+Three paths. Pick one.
+
+**(a) Zero-config — mock LLM, no API keys, deterministic by case_id.**
 
 ```bash
 pnpm install
-LLM_PROVIDER=mock pnpm dev   # zero network, deterministic fixtures by case_id
+pnpm dev
 # open http://localhost:3000
 ```
 
-Click a case pill at the top, press **Run agent**, watch the plan stream, then
-edit/approve in the confirmation card.
+Mock mode is the dev default. Fixtures are keyed by `case_id`, so the
+verdicts match the eval golden set exactly.
 
-### Run a real LLM
-
-Default chain: **Anthropic Sonnet 4.6 (thinking adaptive) primary, DeepSeek
-fallback.** Anthropic supplies native Structured Outputs
-(`withStructuredOutput(schema, { method: 'jsonSchema' })`) so the one LLM call
-this app makes is grammar-constrained; DeepSeek catches Anthropic rate-limits /
-outages mid-demo without changing config.
+**(b) Real LLM via `.env.local` — Anthropic Sonnet 4.6 primary, DeepSeek
+fallback.**
 
 ```bash
-echo 'ANTHROPIC_API_KEY=sk-ant-…'    >> .env.local
-echo 'DEEPSEEK_API_KEY=sk-…'         >> .env.local   # REQUIRED for production deploys — Anthropic→DeepSeek fallback keeps the URL alive when Anthropic 429s or hits the spend cap
-echo 'LLM_PROVIDER=anthropic'        >> .env.local
+pnpm install
+cp .env.example .env.local
+# edit .env.local:
+#   ANTHROPIC_API_KEY=sk-ant-...
+#   DEEPSEEK_API_KEY=sk-...          # optional but recommended for live demo
+#   LLM_PROVIDER=anthropic
 pnpm dev
 ```
 
-Five modes. `LLM_PROVIDER=anthropic` (recommended; Anthropic primary, DeepSeek
-fallback when the key is present), `LLM_PROVIDER=anthropic-only` (no fallback —
-used by `pnpm eval:dataset`), `LLM_PROVIDER=deepseek-only` (cost lane; legacy
-aliases `deepseek` / `deepseek-direct` map here), `LLM_PROVIDER=openrouter`
-(keyless `:free` escape hatch), `LLM_PROVIDER=mock` (deterministic fixtures).
-Defaults: `claude-sonnet-4-6` (Anthropic), `deepseek-chat` (DeepSeek),
-`deepseek/deepseek-chat:free` (OpenRouter); override with `ANTHROPIC_MODEL` /
-`DEEPSEEK_MODEL` / `OPENROUTER_MODEL`.
+The Anthropic key must be the *console* key (`sk-ant-…`), not an OAuth token.
+The OAuth tokens in some envchain namespaces (`hermes-llm/ANTHROPIC_TOKEN`)
+are *not* compatible with the LangChain Anthropic binding.
 
-| Env var | Default | Purpose |
-|---|---|---|
-| `LLM_PROVIDER` | `mock` | `anthropic` \| `anthropic-only` \| `deepseek-only` \| `openrouter` \| `mock` |
-| `ANTHROPIC_API_KEY` | — | Required for `anthropic`/`anthropic-only` |
-| `ANTHROPIC_MODEL` | `claude-sonnet-4-6` | Override Anthropic model id |
-| `ANTHROPIC_EFFORT` | `medium` | Thinking effort: `low` \| `medium` \| `high` (applied when thinking is enabled) |
-| `ANTHROPIC_THINKING_BUDGET` | (model default) | Override the thinking-token budget if a single case stalls |
-| `DEEPSEEK_API_KEY` | — | **Required** for production deploys — composeWithFallback routes here when Anthropic 429s or hits the spend cap. Also required for `deepseek-only` mode. |
-| `LLM_PIPELINE_MODE` | `single` | `single` (one structured call) or `3step` (decompose; experimental, default off) |
-| `LLM_DEBUG_BINDING` | unset | When `=1`, logs the wire-format binding payload once on each LLM call — verify `thinking` + `output_config.format.type === 'json_schema'` both present |
-
-> **Stale-env-var warning**: `LLM_PROVIDER=mock` left in your shell silently
-> serves fixtures even on a real-key build. The dev server logs the active
-> provider on startup; verify before claiming a real run.
-
-## Repo layout
-
-```
-src/
-  app/
-    page.tsx                    # mounts <Workbench/>
-    api/run/[case]/route.ts     # POST: seed + invoke; GET: snapshot
-    api/resume/route.ts         # POST: Command(resume=HumanDecision)
-    api/policy/[doc]/route.ts   # GET: raw policy text for the drawer
-  components/                   # presentational React components
-    Workbench.tsx               # the only stateful component
-    CaseTabs.tsx                # case_001 | case_002 | case_003
-    CanvasHeader.tsx            # vendor + ACV + run_status + provider chip
-    PlanList.tsx                # streaming PNG-node progress
-    ToolAuditCard.tsx           # humanized tool call cards (no JSON)
-    DecisionPacketCard.tsx      # the centerpiece artifact
-    ConfirmationCard.tsx        # HITL inline (operator only)
-    CitationChip.tsx            # opens PolicyDrawer
-    PolicyDrawer.tsx            # verbatim quote + highlighted source
-    RunEmpty.tsx                # pre-run CTA
-  lib/
-    agent/
-      graph.ts                  # 14-node StateGraph + MemorySaver
-      nodes.ts                  # node bodies; LLM nodes branch on activeProvider()
-      tools.ts                  # 8 PNG-named tools (deterministic TypeScript)
-      schemas.ts                # Zod (one-to-one with the spec's Pydantic shapes)
-      policies.ts               # loads docs/*.md into prompts + drawer
-      prompts.ts                # system prompt with hard product lines
-      llm.ts                    # 5-mode provider switch + Anthropic→DeepSeek fallback composer
-      mocks.ts                  # deterministic fixtures keyed by case_id
-    cases.ts                    # case metadata + IDs
-cases/                          # provided — case_001…003
-docs/                           # provided — 7 policy md files
-tools/                          # provided — budget_lookup.csv, vendor_register.csv, PNG
-```
-
-## The three cases
-
-| Case | Vendor | ACV | Expected |
-|------|--------|-----|----------|
-| 001 | Northstar Analytics (CRM AI) | $85k + $10k OT | High · approve_with_followup (Legal + Security review) |
-| 002 | Workspace Depot (renewal) | $12k | Medium · approve_with_followup (gather missing intake) |
-| 003 | TalentPulse AI (HR analytics) | $120k + $20k OT | High · escalate (executive sponsor; multiple blockers) |
-
-Mock-mode verdicts match this table deterministically.
-
-## Tools implemented (PNG names preserved)
-
-| Tool | Source |
-|------|--------|
-| `validate_required_documents(case_folder)` | `cases/<id>/` filesystem |
-| `lookup_budget(cost_center)` | `tools/budget_lookup.csv` |
-| `check_existing_vendor(vendor_name)` | `tools/vendor_register.csv` (fuse.js fuzzy match) |
-| `calculate_total_contract_value(acv, term_months, one_time)` | finance policy formula |
-| `classify_data_sensitivity(data_description)` | `data_handling_policy.md` enum |
-| `determine_required_approvals(...)` | `finance_approval_matrix.md` + legal + security |
-| `draft_vendor_followup(missing_items, vendor_email)` | LLM-drafted, clearly labeled DRAFT |
-| `escalate_to_human(reason, severity)` | structured ticket payload |
-| `read_policy(name)` *(extra)* | exposes verbatim policy text for citation |
-| `validate_citations()` *(extra)* | substring-checks every quote against source policy |
-
-## Verification
+**(c) envchain on macOS — my preferred setup, keeps keys out of files.**
 
 ```bash
-pnpm typecheck   # tsc --noEmit
-pnpm build       # next build
-pnpm dev         # then click each case + Run + Approve
+brew install envchain
+envchain --set vendor-ai ANTHROPIC_API_KEY DEEPSEEK_API_KEY LLM_PROVIDER
+# at the prompt for LLM_PROVIDER type: anthropic
+envchain vendor-ai pnpm dev
 ```
 
-### Accuracy bench
+envchain reads from macOS Keychain and injects env vars into the child
+process. The dev server logs the active provider on startup so you can
+confirm the right key is being used.
 
-`pnpm eval:dataset` scores the 3 materialized cases against
-`eval/dataset.json` using a 5-point rubric (flag count in range,
-flag count exact, action match, risk match, severity-mix block match).
+## Provider switch
 
-| Provider                                       | Overall      | Notes |
-|------------------------------------------------|--------------|-------|
-| `mock` (deterministic fixtures)                | 15/15 100%   | Floor — graph plumbing |
-| `anthropic-only` (sonnet 4.6 · thinking)       | **14/15 93%** (2026-05-13) | action / risk / severity all 3/3; flag-count-exact 2/3 |
+`LLM_PROVIDER` selects the LLM lane. The same switch drives `pnpm dev`,
+`pnpm eval:dataset`, and the Vercel deploy.
 
-Latency on the same run: case_001 174s · case_002 44s · case_003
-140s (mean 119s, p95 ~170s). The single thinking-adaptive structured
-call is the bottleneck — see [`PRODUCTIONIZATION.md`](./PRODUCTIONIZATION.md)
-"Next steps — accuracy and latency" for the specific levers I'd
-pull next. Full per-check breakdown and run logs in
-[`eval/README.md`](./eval/README.md).
+| `LLM_PROVIDER` | Needs | Behavior |
+|---|---|---|
+| `mock` *(default when unset)* | nothing | Deterministic fixtures from `mocks.ts` keyed by `case_id`. No network. |
+| `anthropic` *(recommended)* | `ANTHROPIC_API_KEY`; `DEEPSEEK_API_KEY` for fallback | Anthropic Sonnet 4.6 with extended thinking via native Structured Outputs. When the DeepSeek key is present, `composeWithFallback` routes there on Anthropic 429 / spend-cap / 5xx without changing config. |
+| `anthropic-only` | `ANTHROPIC_API_KEY` | Anthropic, no fallback. Used by `pnpm eval:dataset` so eval failures surface as eval failures. |
+| `deepseek-only` | `DEEPSEEK_API_KEY` | DeepSeek `deepseek-chat`. Cost lane. Legacy aliases `deepseek` and `deepseek-direct` map here. |
+| `openrouter` | nothing required | `:free` model via OpenRouter (`deepseek/deepseek-chat:free` default). Keyless escape hatch; rate-limited under load. |
 
-## Deploy
+Model overrides: `ANTHROPIC_MODEL`, `DEEPSEEK_MODEL`, `OPENROUTER_MODEL`,
+`ANTHROPIC_EFFORT` (`low` | `medium` | `high`), `ANTHROPIC_THINKING_BUDGET`.
+Set `LLM_DEBUG_BINDING=1` to log the wire-format binding payload once per
+call (verify both `thinking` and `output_config.format.type === 'json_schema'`
+are present).
 
-Single Vercel project. Set `LLM_PROVIDER` and the matching API key in **Project
-Settings → Environment Variables**. Push to `main` (or any branch — preview
-deploys work) and Vercel does the rest. No FastAPI, no second service.
+## Three gotchas worth surfacing
 
-## Read the architecture & productionization notes
+1. **envchain wins over `.env.local`.** Next.js loads dotenv before envchain
+   injects, but envchain's child-process env merges in *last* and overwrites.
+   If you set `LLM_PROVIDER=anthropic` via envchain and `LLM_PROVIDER=mock`
+   in `.env.local`, the server runs Anthropic. The startup log prints the
+   active provider; trust the log over the file.
+2. **The Anthropic *console* key is what works.** `sk-ant-…` from the
+   Anthropic console. OAuth tokens issued through Claude Code or partner
+   integrations are not compatible with the LangChain binding and will 401
+   on first call.
+3. **`LLM_PROVIDER` unset on Vercel silently fixtures every request.** The
+   default is `mock`. If you deploy without setting `LLM_PROVIDER` in
+   **Project Settings → Environment Variables**, prod serves the same
+   deterministic fixtures the dev box does. Not a bug; a footgun.
 
-- [`ARCHITECTURE.md`](./ARCHITECTURE.md) — state graph, schema, tool catalog,
-  HITL pattern, the four hard product lines and where they're enforced.
-- [`PRODUCTIONIZATION.md`](./PRODUCTIONIZATION.md) — what's mocked, what would
-  change at scale, the four phases to take this from prototype to production.
-- [`DESIGN.md`](./DESIGN.md) — design tokens, component inventory, accessibility,
-  operator/recipient permission matrix.
-- [`SPEC.md`](./SPEC.md) — the original PRD-shaped spec.
+## Evals
+
+```bash
+envchain vendor-ai bash -c 'LLM_PROVIDER=anthropic-only pnpm eval:dataset'
+# target ≥14/15 across the 3 cases
+node scripts/qa-packet-render.mjs
+# manual Playwright smoke for the Decision Packet render
+```
+
+Latest run (2026-05-13, `anthropic-only`): **14/15 (93%)**. Per-case latency
+case_001 174s · case_002 44s · case_003 140s, mean 119s, p95 ~170s. The
+single thinking-adaptive structured call is the bottleneck. The specific
+levers I'd pull next live in `PRODUCTIONIZATION.md` under "Next steps —
+accuracy and latency."
+
+## What's where
+
+```
+src/app/                 Next.js App Router + /api endpoints
+  api/run/[case]/        POST: seed + drive graph (SSE); GET: state snapshot
+  api/resume/            POST: Command(resume=HumanDecision) (SSE)
+  api/policy/[doc]/      GET: verbatim policy text for the drawer
+src/components/          Pure presentational React (Workbench is the only stateful one)
+src/lib/agent/
+  graph.ts               14-node StateGraph + MemorySaver
+  nodes.ts               node bodies; LLM nodes branch on activeProvider()
+  tools.ts               the 8 PNG-named deterministic tools
+  schemas.ts             Zod source of truth (one-to-one with the spec's Pydantic)
+  policies.ts            loads docs/*.md into prompts + drawer
+  llm.ts                 5-mode provider switch + Anthropic→DeepSeek composer
+  mocks.ts               deterministic fixtures by case_id
+cases/                   provided assets — case_001, 002, 003
+docs/                    provided assets — 7 policy markdown files
+tools/                   provided assets — budget_lookup.csv, vendor_register.csv, PNG flow
+mock/                    static HTML mocks — visual + state-graph reference
+```
+
+## Read these next
+
+- [`SPEC.md`](./SPEC.md) — product spec. §9 is the four hard product lines.
+- [`ARCHITECTURE.md`](./ARCHITECTURE.md) — system view: state graph, schema,
+  HITL pattern, where the §9 constraints are enforced in code.
+- [`DESIGN.md`](./DESIGN.md) — UI contracts per component. If a component
+  disagrees with this file, the component is wrong.
+- [`PRODUCTIONIZATION.md`](./PRODUCTIONIZATION.md) — the gap between
+  prototype and production. Four phases, deliberately conservative.
+
+## Verify before you commit
+
+```bash
+pnpm typecheck     # tsc --noEmit, required before every commit
+pnpm build         # next build, catches App Router edge cases
+pnpm test          # unit + integration; the integration tests gate DESIGN.md contracts
+```
+
+Then read SPEC §9 once more and check you haven't added anything that
+contradicts it.
