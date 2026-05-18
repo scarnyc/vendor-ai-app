@@ -105,23 +105,32 @@ export function useStreamingRun(
     }
   }, []);
 
-  const handleMalformed = useCallback((raw: string, err: unknown) => {
-    const detail = err instanceof Error ? err.message : String(err);
-    console.error('[useStreamingRun] malformed SSE frame', { raw, detail });
-    dispatch({
-      kind: 'error',
-      code: 'malformed_event',
-      message: `Stream corruption: ${detail}`,
-      canRetry: true,
-    });
-    // Abort whichever stream is actually live; aborting both would mask which
-    // surface produced the bad frame, and resume/run cannot both be in flight.
-    // Mark as deliberate teardown so openStream's finally skips reconcile —
-    // an error-state phase is already terminal from the operator's view.
-    expectedTeardownRef.current = true;
-    if (submittingRef.current) resumeAbortRef.current?.abort();
-    else runAbortRef.current?.abort();
-  }, []);
+  const handleMalformed = useCallback(
+    (raw: string, err: unknown, sourceController?: AbortController) => {
+      const detail = err instanceof Error ? err.message : String(err);
+      console.error('[useStreamingRun] malformed SSE frame', { raw, detail });
+      dispatch({
+        kind: 'error',
+        code: 'malformed_event',
+        message: `Stream corruption: ${detail}`,
+        canRetry: true,
+      });
+      // Mark as deliberate teardown so openStream's finally skips reconcile —
+      // an error-state phase is already terminal from the operator's view.
+      expectedTeardownRef.current = true;
+      // Identity-guarded abort: prefer the source stream's controller if we
+      // were given one. Falling back to runAbortRef/resumeAbortRef would
+      // tear down a NEWER stream if the bad frame arrived from an older one
+      // that already reassigned the ref.
+      if (sourceController && !sourceController.signal.aborted) {
+        sourceController.abort();
+        return;
+      }
+      if (submittingRef.current) resumeAbortRef.current?.abort();
+      else runAbortRef.current?.abort();
+    },
+    []
+  );
 
   const openStream = useCallback(
     (url: string, init: RequestInit) => {
@@ -138,11 +147,19 @@ export function useStreamingRun(
       const controller = new AbortController();
       runAbortRef.current = controller;
 
+      // Per-stream malformed handler — captures the controller for THIS stream
+      // by reference, so a late-arriving bad frame can't abort a newer stream
+      // that already reassigned runAbortRef.current. Without this guard, a
+      // delayed parse error from stream N could tear down stream N+1.
+      const onMalformedForThisStream = (raw: string, err: unknown) => {
+        handleMalformed(raw, err, controller);
+      };
+
       (async () => {
         try {
           for await (const event of streamAgUiEvents(url, init, {
             signal: controller.signal,
-            onMalformed: handleMalformed,
+            onMalformed: onMalformedForThisStream,
           })) {
             dispatch({ kind: 'event', event });
           }
@@ -281,6 +298,11 @@ export function useStreamingRun(
 
       const controller = new AbortController();
       resumeAbortRef.current = controller;
+      // Pin THIS resume's controller so handleMalformed cannot abort a newer
+      // run stream that reused resumeAbortRef after we cleared it.
+      const onMalformedForThisResume = (raw: string, err: unknown) => {
+        handleMalformed(raw, err, controller);
+      };
       try {
         for await (const event of streamAgUiEvents(
           '/api/resume',
@@ -289,7 +311,7 @@ export function useStreamingRun(
             headers: { 'content-type': 'application/json' },
             body: JSON.stringify({ case_id: caseId, decision }),
           },
-          { signal: controller.signal, onMalformed: handleMalformed }
+          { signal: controller.signal, onMalformed: onMalformedForThisResume }
         )) {
           dispatch({ kind: 'event', event });
         }

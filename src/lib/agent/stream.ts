@@ -69,9 +69,16 @@ export async function* streamRun(
 
     if (hasState && stillRunning) {
       // Already paused at HITL — replay accumulated state, re-emit pause.
-      yield* replayState(existing.values as AgentState);
-      yield events.runPausedAwaitingHuman();
-      return;
+      // §9 defense-in-depth: only enter the HITL replay branch if the graph
+      // is actually interrupted at human_approval. If a future node ever
+      // pauses elsewhere, fall through so replayState's schema check (below)
+      // and the run path's validate_citations gate stay load-bearing.
+      const interruptNodes = existing.next ?? [];
+      if (interruptNodes.includes('human_approval')) {
+        yield* replayState(existing.values as AgentState);
+        yield events.runPausedAwaitingHuman();
+        return;
+      }
     }
 
     if (!hasState) {
@@ -202,6 +209,14 @@ export async function* streamRun(
  * POST lands on an already-paused thread (page reload after HITL was
  * reached). Tools become START/END pairs; non-tool fields become single
  * STATE_DELTA events; the packet becomes a single STATE_SNAPSHOT.
+ *
+ * §9 defense-in-depth: the persisted decision_packet is re-validated against
+ * DecisionPacketSchema before being re-emitted. The first-pass run already
+ * gated on validate_citations, but a future graph change (or a corrupted
+ * MemorySaver checkpoint) could otherwise let an unvalidated packet reach
+ * the operator behind the HITL gate. On parse failure we emit RUN_ERROR
+ * instead of STATE_SNAPSHOT, so the client never renders an unvalidated
+ * confirmation card.
  */
 function* replayState(state: AgentState): Generator<AgUiEvent, void, void> {
   for (const record of state.tools_called ?? []) {
@@ -232,6 +247,15 @@ function* replayState(state: AgentState): Generator<AgUiEvent, void, void> {
   }
 
   if (state.decision_packet) {
-    yield events.stateSnapshot(state.decision_packet);
+    const parsed = DecisionPacketSchema.safeParse(state.decision_packet);
+    if (parsed.success) {
+      yield events.stateSnapshot(parsed.data);
+    } else {
+      yield events.runError({
+        code: 'packet_schema_invalid',
+        message: `Persisted DecisionPacket failed schema validation on replay: ${parsed.error.message}`,
+        recoverable: false,
+      });
+    }
   }
 }

@@ -100,4 +100,39 @@ describe('streaming integration — stream output matches synchronous invoke', (
       `streamed run of case_001 (mock) took ${elapsedMs}ms; SPEC §6 budget is 90,000ms`
     ).toBeLessThan(90_000);
   });
+
+  it('replay defense-in-depth: a corrupted persisted DecisionPacket yields RUN_ERROR, not STATE_SNAPSHOT', async () => {
+    // §9 guarantees the operator never sees an unvalidated packet behind the
+    // HITL gate. The first run already gated on validate_citations, but the
+    // replay path must independently re-validate so a tampered or future-
+    // broken-by-migration checkpoint can't slip past the structural rule.
+    const caseId = 'case_002';
+    // Drive to HITL pause so MemorySaver has next=['human_approval'].
+    for await (const _ of streamRun(caseId, { kind: 'run' })) void _;
+
+    // Poison the persisted packet — strip a required field so DecisionPacketSchema
+    // fails its safeParse on replay. The StateAnnotation accepts the partial
+    // shape because field-level shape isn't enforced at the channel layer.
+    const config = { configurable: { thread_id: caseId } };
+    const snap = await graph.getState(config);
+    const persisted = (snap.values as AgentState).decision_packet;
+    expect(persisted, 'precondition: packet is persisted').toBeTruthy();
+    const corrupted = { ...persisted!, vendor_name: undefined } as unknown as AgentState['decision_packet'];
+    await graph.updateState(config, { decision_packet: corrupted }, undefined);
+
+    const events: AgUiEvent[] = [];
+    for await (const event of streamRun(caseId, { kind: 'run' })) {
+      events.push(event);
+    }
+
+    // The replay branch should detect the schema break and surface RUN_ERROR
+    // instead of yielding STATE_SNAPSHOT + RUN_PAUSED_AWAITING_HUMAN.
+    const errors = events.filter((e) => e.type === 'RUN_ERROR');
+    expect(errors.length, 'replay must emit RUN_ERROR on schema failure').toBeGreaterThan(0);
+    if (errors[0].type === 'RUN_ERROR') {
+      expect(errors[0].code).toBe('packet_schema_invalid');
+    }
+    const snapshots = events.filter((e) => e.type === 'STATE_SNAPSHOT');
+    expect(snapshots.length, 'no STATE_SNAPSHOT must escape on schema failure').toBe(0);
+  });
 });

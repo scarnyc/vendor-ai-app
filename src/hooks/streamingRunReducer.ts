@@ -89,6 +89,11 @@ export function reducer(state: StreamingRunState, action: Action): StreamingRunS
       };
 
     case 'hydrate': {
+      // Error stickiness: once the operator sees an error banner with a Retry
+      // button, an in-flight stranded-reconcile GET resolving with non-error
+      // MemorySaver state must NOT silently overwrite it. The operator's next
+      // action (Retry / case-switch) is the only thing that clears 'error'.
+      if (state.phase === 'error') return state;
       const base: BaseState = {
         agentState: action.state,
         tools: action.state.tools_called ?? [],

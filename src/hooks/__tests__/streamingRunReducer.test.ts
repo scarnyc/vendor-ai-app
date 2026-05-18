@@ -242,6 +242,25 @@ describe('streamingRunReducer — hydrate (rehydrate-from-MemorySaver)', () => {
     expect(next.phase).toBe('streaming');
     expect(next.decisionPacket).toBeNull();
   });
+
+  it('error stickiness: hydrate cannot overwrite an error banner', () => {
+    // Operator hit an error and we showed them a Retry button. A stranded-
+    // reconcile GET racing in afterward must NOT silently flip back to
+    // streaming/paused — Retry is the only escape from 'error'.
+    const errored = reducer(INITIAL_STATE, {
+      kind: 'error',
+      code: 'stream_failed',
+      message: 'boom',
+      canRetry: true,
+    });
+    expect(errored.phase).toBe('error');
+    const afterHydrate = reducer(errored, {
+      kind: 'hydrate',
+      state: finishedState,
+      interrupted: true,
+    });
+    expect(afterHydrate).toBe(errored);
+  });
 });
 
 describe('streamingRunReducer — applyEvent (stream-driven transitions)', () => {

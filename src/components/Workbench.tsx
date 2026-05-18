@@ -13,6 +13,29 @@ import { ConfirmationCard } from './ConfirmationCard';
 import { RunEmpty } from './RunEmpty';
 import { PolicyDrawer } from './PolicyDrawer';
 
+// CLAUDE.md "Humanized UI copy" — error codes are operator-facing labels, not
+// debug breadcrumbs. Render the short label; the raw snake_case key stays in
+// console.error for engineers.
+const ERROR_CODE_LABELS: Record<string, string> = {
+  stream_failed: 'Connection dropped',
+  malformed_event: 'Stream corruption',
+  paused_without_packet: 'Missing decision packet',
+  graph_error: 'Agent run failed',
+  validation_failed: 'Citation validation failed',
+  packet_schema_invalid: 'Packet failed schema validation',
+  rehydrate_server_error: 'Server unavailable',
+  rehydrate_failed: 'Cached state unavailable',
+  rehydrate_network_error: 'Network unavailable',
+  resume_failed: 'Resume failed',
+  invalid_request: 'Invalid request',
+  unknown_case: 'Unknown case',
+  resume_error: 'Resume failed',
+};
+
+function humanizeErrorCode(code: string): string {
+  return ERROR_CODE_LABELS[code] ?? 'Unexpected error';
+}
+
 export function Workbench() {
   const [caseId, setCaseId] = useState<CaseId>('case_001');
   const [drawerCitation, setDrawerCitation] = useState<PolicyCitation | null>(null);
@@ -61,7 +84,7 @@ export function Workbench() {
                   <div className="flag-issue">
                     {errorBlock.message}
                     <span style={{ opacity: 0.6, fontSize: 11, marginLeft: 6 }}>
-                      ({errorBlock.code})
+                      ({humanizeErrorCode(errorBlock.code)})
                     </span>
                     {errorBlock.canRetry && (
                       <>
