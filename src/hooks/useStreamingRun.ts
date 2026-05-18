@@ -79,6 +79,21 @@ export function useStreamingRun(
   const countdownTick = useRef<ReturnType<typeof setInterval> | null>(null);
   const [provider, setProvider] = useState<ProviderInfo | null>(null);
 
+  // Refs that back the stranded-stream auto-reconcile branch in openStream's
+  // finally. stateRef gives the IIFE access to the post-dispatch phase
+  // without stale closure; expectedTeardownRef is flipped to true at every
+  // deliberate-abort call site (effect cleanup, handleMalformed) so the
+  // finally can distinguish operator-driven teardown from server-side close
+  // / HMR-induced wire drop. currentCaseIdRef is the same-case guard
+  // against a fast tab-switch racing with the finally.
+  const stateRef = useRef(state);
+  useEffect(() => {
+    stateRef.current = state;
+  }, [state]);
+  const expectedTeardownRef = useRef(false);
+  const currentCaseIdRef = useRef<CaseId>(caseId);
+  const rehydrateRef = useRef<() => Promise<boolean>>(async () => false);
+
   const clearCountdown = useCallback(() => {
     if (countdownTimer.current) {
       clearTimeout(countdownTimer.current);
@@ -101,6 +116,9 @@ export function useStreamingRun(
     });
     // Abort whichever stream is actually live; aborting both would mask which
     // surface produced the bad frame, and resume/run cannot both be in flight.
+    // Mark as deliberate teardown so openStream's finally skips reconcile —
+    // an error-state phase is already terminal from the operator's view.
+    expectedTeardownRef.current = true;
     if (submittingRef.current) resumeAbortRef.current?.abort();
     else runAbortRef.current?.abort();
   }, []);
@@ -110,6 +128,13 @@ export function useStreamingRun(
       if (streamingCases.current.has(caseId)) return;
       streamingCases.current.add(caseId);
 
+      // Reset deliberate-teardown sentinel for THIS stream — handleMalformed
+      // or the lifecycle cleanup will flip it back to true if they abort.
+      expectedTeardownRef.current = false;
+      // Pin caseId for this stream so the finally's same-case guard cannot
+      // be fooled by a fast operator tab-switch that already mutated the
+      // hook-level `caseId` closure.
+      const myCaseId = caseId;
       const controller = new AbortController();
       runAbortRef.current = controller;
 
@@ -131,8 +156,25 @@ export function useStreamingRun(
             canRetry: true,
           });
         } finally {
-          streamingCases.current.delete(caseId);
+          streamingCases.current.delete(myCaseId);
           if (runAbortRef.current === controller) runAbortRef.current = null;
+
+          // Stranded-stream auto-reconcile: if the wire ended without the
+          // reducer reaching a terminal phase AND the abort wasn't operator-
+          // driven AND the operator is still on this case, fire a single
+          // cheap GET to pull persisted MemorySaver state. Covers the
+          // server-side terminal-frame drop window (post-iterator-drain
+          // controller close swallowed at route.ts isControllerClosed) and
+          // any HMR-induced wire close in dev.
+          const phase = stateRef.current.phase;
+          const stillSameCase = myCaseId === currentCaseIdRef.current;
+          const stranded =
+            phase !== 'paused' &&
+            phase !== 'finished' &&
+            phase !== 'error';
+          if (stranded && !expectedTeardownRef.current && stillSameCase) {
+            void rehydrateRef.current();
+          }
         }
       })();
     },
@@ -181,6 +223,13 @@ export function useStreamingRun(
       return false;
     }
   }, [caseId]);
+
+  // Sync rehydrate fn into a ref so openStream's finally can call the latest
+  // closure without rebuilding openStream (which would tear down + re-arm
+  // streams on every caseId tick).
+  useEffect(() => {
+    rehydrateRef.current = rehydrate;
+  }, [rehydrate]);
 
   const armCountdown = useCallback(() => {
     clearCountdown();
@@ -265,6 +314,9 @@ export function useStreamingRun(
   // and skip the countdown. Otherwise arm the first-visit countdown.
   useEffect(() => {
     let cancelled = false;
+    // Pin the in-effect case so openStream's finally same-case guard knows
+    // which case the operator is actually viewing.
+    currentCaseIdRef.current = caseId;
     dispatch({ kind: 'reset_to_idle' });
     clearCountdown();
 
@@ -285,11 +337,16 @@ export function useStreamingRun(
       // Synchronously clear so a quick re-mount can start a new stream —
       // the in-flight async finally clause is racy with a fresh openStream.
       streamingCases.current.delete(caseId);
+      // Flag deliberate-teardown BEFORE aborting so the in-flight stream's
+      // finally skips the stranded-reconcile branch — case-switches and
+      // unmounts are operator-driven, not server-side wire drops.
       if (runAbortRef.current) {
+        expectedTeardownRef.current = true;
         runAbortRef.current.abort();
         runAbortRef.current = null;
       }
       if (resumeAbortRef.current) {
+        expectedTeardownRef.current = true;
         resumeAbortRef.current.abort();
         resumeAbortRef.current = null;
       }

@@ -50,6 +50,16 @@ export async function POST(
           // anything else so a real bug isn't masked by the abort path.
           if (!isControllerClosed(err)) {
             console.error('[api/run] unexpected controller.enqueue failure', err);
+          } else {
+            // Observability for the stranded-stream window: post-iterator-
+            // drain terminal frames (STATE_SNAPSHOT, RUN_PAUSED_AWAITING_HUMAN)
+            // silently dropped when the client closes between iterator exit
+            // and the post-loop yields. Client-side reconcile (useStreamingRun
+            // openStream finally) recovers; this gives us a count.
+            console.warn('[api/run] terminal frame dropped post-close', {
+              case_id: caseId,
+              event_type: event.type,
+            });
           }
           abort.abort();
         }
@@ -81,6 +91,11 @@ export async function POST(
         } catch (sendErr) {
           if (!isControllerClosed(sendErr)) {
             console.error('[api/run] runError send failed', sendErr);
+          } else {
+            console.warn('[api/run] terminal frame dropped post-close', {
+              case_id: caseId,
+              event_type: 'RUN_ERROR',
+            });
           }
         }
         controller.error(err instanceof Error ? err : new Error(message));

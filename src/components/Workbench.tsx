@@ -17,7 +17,7 @@ export function Workbench() {
   const [caseId, setCaseId] = useState<CaseId>('case_001');
   const [drawerCitation, setDrawerCitation] = useState<PolicyCitation | null>(null);
 
-  const run = useStreamingRun(caseId);
+  const run = useStreamingRun(caseId, { countdownMs: 0 });
   const { state } = run;
   const caseMeta = CASES[caseId];
 

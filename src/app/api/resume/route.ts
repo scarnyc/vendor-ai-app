@@ -55,6 +55,11 @@ export async function POST(req: NextRequest) {
         } catch (err) {
           if (!isControllerClosed(err)) {
             console.error('[api/resume] unexpected controller.enqueue failure', err);
+          } else {
+            console.warn('[api/resume] terminal frame dropped post-close', {
+              case_id: caseId,
+              event_type: event.type,
+            });
           }
           abort.abort();
         }
@@ -84,6 +89,11 @@ export async function POST(req: NextRequest) {
         } catch (sendErr) {
           if (!isControllerClosed(sendErr)) {
             console.error('[api/resume] runError send failed', sendErr);
+          } else {
+            console.warn('[api/resume] terminal frame dropped post-close', {
+              case_id: caseId,
+              event_type: 'RUN_ERROR',
+            });
           }
         }
         controller.error(err instanceof Error ? err : new Error(message));

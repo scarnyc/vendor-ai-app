@@ -212,4 +212,214 @@ describe('useStreamingRun', () => {
     expect(streamCalls[0].url).toBe('/api/run/case_001');
     expect(streamCalls[0].init.method).toBe('POST');
   });
+
+  it('reconciles via rehydrate when stream ends without terminal frame', async () => {
+    // Initial rehydrate: no prior state (cold case). Second rehydrate
+    // (the stranded-stream reconcile) returns a finished state so the
+    // reducer transitions to phase: 'finished'. The fact that the second
+    // GET fires at all is the assertion that proves the finally-block
+    // reconcile branch fired — i.e. server-side terminal-frame drop is
+    // recoverable on the client without a manual refresh.
+    const finishedState: AgentState = {
+      case_id: 'case_001',
+      run_status: 'decided',
+      current_node: null,
+      document_inventory: null,
+      budget: null,
+      duplicate_vendor: null,
+      tcv: null,
+      data_sensitivity: null,
+      required_approvals: null,
+      policy_flags: [],
+      decision_packet: null,
+      tools_called: [],
+      human_decision: {
+        verdict: 'approved',
+        notes: null,
+        decided_at: '2026-05-18T00:00:00.000Z',
+        decided_by: 'priya',
+        edits_applied: null,
+      },
+      error: null,
+      candidate_clauses: null,
+    };
+
+    let fetchCount = 0;
+    fetchMock.mockImplementation(async () => {
+      fetchCount += 1;
+      // First GET: no run yet → no state, has_run=false (operator-driven start).
+      // Second GET: this is the auto-reconcile after stranded stream → returns
+      // the persisted MemorySaver snapshot.
+      const body =
+        fetchCount === 1
+          ? { case_id: 'case_001', thread_id: 'thr', state: null, next: [], interrupted: false, has_run: false }
+          : { case_id: 'case_001', thread_id: 'thr', state: finishedState, next: [], interrupted: false, has_run: true };
+      return new Response(JSON.stringify(body), {
+        status: 200,
+        headers: { 'content-type': 'application/json' },
+      });
+    });
+
+    const { useStreamingRun } = await import('../useStreamingRun');
+
+    const { result } = renderHook(() =>
+      useStreamingRun('case_001', { countdownMs: 60_000 })
+    );
+    // Initial rehydrate completes.
+    await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(1));
+
+    // Operator clicks Run → POST /api/run/case_001 stream opens.
+    await act(async () => {
+      result.current.startNow();
+    });
+    await waitFor(() => expect(streamCalls.length).toBe(1));
+
+    // Stream "ends" mid-flight WITHOUT yielding a terminal frame —
+    // resolve with an empty event list. This simulates the server-side
+    // terminal-frame drop window (controller close after iterator drain).
+    await act(async () => {
+      streamCalls[0].resolve([]);
+      // Yield microtasks so the IIFE finally runs.
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    // Reconcile fires a second GET. Reducer transitions to 'finished'
+    // off the second rehydrate response (run_status === 'decided').
+    await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(2));
+    await waitFor(() => expect(result.current.state.phase).toBe('finished'));
+  });
+
+  it('does not reconcile when case-switch caused the abort', async () => {
+    // Both cases return has_run=false; we only care about fetch COUNT per case.
+    fetchMock.mockImplementation(async (url: string) => {
+      const caseId = url.includes('case_002') ? 'case_002' : 'case_001';
+      return new Response(
+        JSON.stringify({
+          case_id: caseId,
+          thread_id: 'thr',
+          state: null,
+          next: [],
+          interrupted: false,
+          has_run: false,
+        }),
+        { status: 200, headers: { 'content-type': 'application/json' } }
+      );
+    });
+
+    const { useStreamingRun } = await import('../useStreamingRun');
+
+    const { result, rerender } = renderHook(
+      ({ caseId }) => useStreamingRun(caseId, { countdownMs: 60_000 }),
+      { initialProps: { caseId: 'case_001' as 'case_001' | 'case_002' } }
+    );
+    // Initial rehydrate for case_001.
+    await waitFor(() =>
+      expect(
+        fetchMock.mock.calls.filter((c) => String(c[0]).includes('case_001')).length
+      ).toBe(1)
+    );
+
+    // Start a stream on case_001 so there's an in-flight controller to abort.
+    await act(async () => {
+      result.current.startNow();
+    });
+    await waitFor(() => expect(streamCalls.length).toBe(1));
+
+    // Operator switches to case_002 — lifecycle cleanup flips
+    // expectedTeardownRef.current = true BEFORE aborting, so the
+    // finally must NOT fire a reconcile GET against case_001.
+    rerender({ caseId: 'case_002' });
+
+    // Drain the aborted stream's finally.
+    await act(async () => {
+      streamCalls[0].resolve([]);
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    // case_001's GET count must stay at 1 (the initial rehydrate). No
+    // stranded-reconcile GET fired for the abandoned case.
+    const case001Gets = fetchMock.mock.calls.filter((c) =>
+      String(c[0]).includes('case_001')
+    ).length;
+    expect(case001Gets).toBe(1);
+  });
+
+  it('default countdownMs=0 skips the countdown phase', async () => {
+    mockRehydrate({ has_run: false });
+    const { useStreamingRun } = await import('../useStreamingRun');
+
+    const { result } = renderHook(() =>
+      useStreamingRun('case_001', { countdownMs: 0 })
+    );
+
+    // After the initial rehydrate (has_run=false), armCountdown fires.
+    // With countdownMs=0, ceil(0/1000)=0 and setTimeout(_, 0) flushes
+    // startStream → enter_streaming on the next macrotask. The phase
+    // must reach 'streaming' (or 'error' if anything fails) without
+    // sitting in 'countdown' indefinitely.
+    await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(1));
+    await waitFor(() => expect(streamCalls.length).toBe(1), { timeout: 1000 });
+    // We should never observe phase 'countdown' with a measurable
+    // countdownSecondsRemaining > 0 when countdownMs=0.
+    expect(result.current.state.phase).not.toBe('idle');
+  });
+
+  it('AC9: fast case-switch race does not reconcile for abandoned case', async () => {
+    // Toggle case_001 → case_002 → case_001 within a tight window.
+    // The pinned myCaseId in each stream's finally must skip reconcile
+    // for any case the operator already navigated away from.
+    fetchMock.mockImplementation(async (url: string) => {
+      const caseId = url.includes('case_002') ? 'case_002' : 'case_001';
+      return new Response(
+        JSON.stringify({
+          case_id: caseId,
+          thread_id: 'thr',
+          state: null,
+          next: [],
+          interrupted: false,
+          has_run: false,
+        }),
+        { status: 200, headers: { 'content-type': 'application/json' } }
+      );
+    });
+
+    const { useStreamingRun } = await import('../useStreamingRun');
+
+    const { result, rerender } = renderHook(
+      ({ caseId }) => useStreamingRun(caseId, { countdownMs: 60_000 }),
+      { initialProps: { caseId: 'case_001' as 'case_001' | 'case_002' } }
+    );
+
+    await waitFor(() =>
+      expect(
+        fetchMock.mock.calls.filter((c) => String(c[0]).includes('case_001')).length
+      ).toBe(1)
+    );
+
+    // Open a stream on case_001.
+    await act(async () => {
+      result.current.startNow();
+    });
+    await waitFor(() => expect(streamCalls.length).toBe(1));
+
+    // Rapid toggle: case_001 → case_002 → case_001.
+    rerender({ caseId: 'case_002' });
+    rerender({ caseId: 'case_001' });
+
+    // Drain the abandoned case_001 stream from before the toggles.
+    await act(async () => {
+      streamCalls[0].resolve([]);
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    // case_001 GETs: 1 from initial mount, 1 from the second mount after
+    // toggling back. The stranded-finally must NOT have added a third.
+    const case001Gets = fetchMock.mock.calls.filter((c) =>
+      String(c[0]).includes('case_001')
+    ).length;
+    expect(case001Gets).toBeLessThanOrEqual(2);
+  });
 });
