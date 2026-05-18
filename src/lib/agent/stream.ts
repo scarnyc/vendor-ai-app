@@ -5,11 +5,11 @@ import {
   toolsForNode,
   type AgUiEvent,
 } from './events';
-import type {
-  AgentState,
-  DecisionPacket,
-  HumanDecision,
-  ToolCallRecord,
+import {
+  DecisionPacketSchema,
+  type AgentState,
+  type HumanDecision,
+  type ToolCallRecord,
 } from './schemas';
 
 /**
@@ -37,6 +37,13 @@ import type {
  *   4. RUN_PAUSED_AWAITING_HUMAN / RUN_FINISHED is the terminal event.
  *      The HITL pause is deliberately custom-named (not RUN_FINISHED) so
  *      a contributor cannot misread the run as "approved."
+ *   5. TOOL_CALL_START carries `args: {}` on live nodes — the deterministic
+ *      tool fns are wrapped in node closures, not LangChain Tool objects,
+ *      so the runtime never surfaces structured input. Replay paths fill
+ *      `args` from the stored ToolCallRecord.args_summary instead.
+ *   6. A run whose validate_citations gate set `error` terminates with
+ *      RUN_ERROR (code='validation_failed'), NOT RUN_PAUSED_AWAITING_HUMAN —
+ *      §9 forbids surfacing an unvalidated packet behind the HITL gate.
  */
 
 export type StreamMode =
@@ -81,70 +88,108 @@ export async function* streamRun(
   const announcedTools = new Set<string>();
   const accumulated: Partial<AgentState> = { ...(beforeSnap.values ?? {}) };
 
-  const resumeValue =
-    mode.kind === 'run' ? 'run' : (mode.decision as unknown);
+  const resumeValue = mode.kind === 'run' ? 'run' : mode.decision;
 
   const iterator = await graph.stream(new Command({ resume: resumeValue }), {
     ...config,
     streamMode: 'updates',
   });
 
-  for await (const chunk of iterator) {
-    const updates = chunk as Record<string, Partial<AgentState>>;
-    for (const [nodeName, update] of Object.entries(updates)) {
-      const nodeTools = toolsForNode(nodeName);
-      if (nodeTools && !announcedTools.has(nodeName)) {
-        for (const toolName of nodeTools) {
-          yield events.toolCallStart({ tool_name: toolName, args: {} });
-        }
-        announcedTools.add(nodeName);
-      }
-
-      for (const [key, value] of Object.entries(update)) {
-        if (key === 'tools_called') {
-          const records = value as ToolCallRecord[];
-          const newRecords = records.slice(lastToolsLen);
-          for (const record of newRecords) {
-            yield events.toolCallEnd(record);
+  let iteratorDrained = false;
+  try {
+    for await (const chunk of iterator) {
+      const updates = chunk as Record<string, Partial<AgentState>>;
+      for (const [nodeName, update] of Object.entries(updates)) {
+        const nodeTools = toolsForNode(nodeName);
+        if (nodeTools && !announcedTools.has(nodeName)) {
+          for (const toolName of nodeTools) {
+            yield events.toolCallStart({ tool_name: toolName, args: {} });
           }
-          lastToolsLen = records.length;
-        } else if (key === 'decision_packet') {
-          // Skip the redundant STATE_DELTA: the packet rides the wire once,
-          // via STATE_SNAPSHOT post-validate_citations. Keeping the delta in
-          // accumulated state below preserves the snapshot's source-of-truth.
-        } else {
-          yield events.stateDelta([key], value);
+          announcedTools.add(nodeName);
         }
-        (accumulated as Record<string, unknown>)[key] = value;
-      }
 
-      if (
-        nodeName === 'validate_citations' &&
-        !snapshotEmitted &&
-        accumulated.decision_packet &&
-        // §9 protection: never snapshot a packet whose citation gate failed.
-        // validateCitationsNode sets `error` on the run; stream must keep the
-        // packet off the wire so the operator never sees an unvalidated one.
-        !accumulated.error
-      ) {
-        yield events.stateSnapshot(accumulated.decision_packet as DecisionPacket);
-        snapshotEmitted = true;
+        for (const [key, value] of Object.entries(update)) {
+          if (key === 'tools_called') {
+            const records = value as ToolCallRecord[];
+            const newRecords = records.slice(lastToolsLen);
+            for (const record of newRecords) {
+              yield events.toolCallEnd(record);
+            }
+            lastToolsLen = records.length;
+          } else if (key === 'decision_packet') {
+            // Skip the redundant STATE_DELTA: the packet rides the wire once,
+            // via STATE_SNAPSHOT post-validate_citations. Keeping the delta in
+            // accumulated state below preserves the snapshot's source-of-truth.
+          } else {
+            yield events.stateDelta([key], value);
+          }
+          (accumulated as Record<string, unknown>)[key] = value;
+        }
+
+        if (
+          nodeName === 'validate_citations' &&
+          !snapshotEmitted &&
+          accumulated.decision_packet &&
+          !accumulated.error
+        ) {
+          const parsed = DecisionPacketSchema.safeParse(accumulated.decision_packet);
+          if (parsed.success) {
+            yield events.stateSnapshot(parsed.data);
+            snapshotEmitted = true;
+          } else {
+            yield events.runError({
+              code: 'packet_schema_invalid',
+              message: `DecisionPacket failed schema validation: ${parsed.error.message}`,
+              recoverable: false,
+            });
+            return;
+          }
+        }
       }
+    }
+    iteratorDrained = true;
+  } finally {
+    if (!iteratorDrained) {
+      // for-await exited via throw / early return / generator abandonment.
+      // The graph.stream() iterator drains server-side regardless, so the
+      // MemorySaver checkpoint is intact; the warn just makes the partial
+      // stream visible in server logs instead of dropping silently.
+      console.warn('[streamRun] iterator did not drain to completion', {
+        case_id: caseId,
+        mode: mode.kind,
+      });
     }
   }
 
   const finalSnap = await graph.getState(config);
   const interrupted = (finalSnap.next?.length ?? 0) > 0;
+  const errorOnRun = (finalSnap.values as Partial<AgentState>)?.error;
+
+  if (errorOnRun) {
+    // §9 protection: validate_citations (or any future guard) set an error
+    // string on state. Route to RUN_ERROR so the client surfaces the failure
+    // instead of presenting an HITL gate over an unvalidated packet.
+    yield events.runError({
+      code: 'validation_failed',
+      message: errorOnRun,
+      recoverable: false,
+    });
+    return;
+  }
 
   if (interrupted) {
-    if (
-      !snapshotEmitted &&
-      finalSnap.values.decision_packet &&
-      !finalSnap.values.error
-    ) {
-      yield events.stateSnapshot(
-        finalSnap.values.decision_packet as DecisionPacket
-      );
+    if (!snapshotEmitted && finalSnap.values.decision_packet) {
+      const parsed = DecisionPacketSchema.safeParse(finalSnap.values.decision_packet);
+      if (parsed.success) {
+        yield events.stateSnapshot(parsed.data);
+      } else {
+        yield events.runError({
+          code: 'packet_schema_invalid',
+          message: `DecisionPacket failed schema validation on pause: ${parsed.error.message}`,
+          recoverable: false,
+        });
+        return;
+      }
     }
     yield events.runPausedAwaitingHuman();
   } else {

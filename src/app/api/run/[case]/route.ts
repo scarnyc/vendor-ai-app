@@ -12,10 +12,9 @@ export const maxDuration = 300;
 /**
  * POST /api/run/[case] — AG-UI event stream over SSE.
  *
- * Streams typed events as the LangGraph thread keyed by case_id advances.
- * Event-generation lives in `streamRun()`; the event ordering invariants
- * are documented there. This handler is just SSE framing + provider-label
- * rewrite + lifecycle (close / error).
+ * Event-generation lives in `streamRun()`; ordering invariants are documented
+ * there. This handler only does SSE framing, provider-label rewrite, and
+ * abort lifecycle.
  */
 export async function POST(
   _req: NextRequest,
@@ -45,7 +44,13 @@ export async function POST(
         if (abort.signal.aborted) return;
         try {
           controller.enqueue(encoder.encode(encodeSse(event)));
-        } catch {
+        } catch (err) {
+          // The only enqueue-time error we expect is the closed-controller
+          // TypeError that fires when the client disconnects mid-stream. Log
+          // anything else so a real bug isn't masked by the abort path.
+          if (!isControllerClosed(err)) {
+            console.error('[api/run] unexpected controller.enqueue failure', err);
+          }
           abort.abort();
         }
       };
@@ -54,8 +59,8 @@ export async function POST(
         for await (const event of streamRun(caseId, { kind: 'run' })) {
           if (abort.signal.aborted) break;
           // streamRun emits RUN_STARTED with provider='unspecified' so the
-          // generator stays pure. Rewrite it here so the wire carries the
-          // live provider label.
+          // generator stays pure. Rewrite here so the wire carries the live
+          // provider label.
           if (event.type === 'RUN_STARTED') {
             send({ ...event, provider: providerLabel });
           } else {
@@ -73,8 +78,10 @@ export async function POST(
             message,
             recoverable: false,
           }));
-        } catch {
-          // Already errored — controller.error below still rejects the reader.
+        } catch (sendErr) {
+          if (!isControllerClosed(sendErr)) {
+            console.error('[api/run] runError send failed', sendErr);
+          }
         }
         controller.error(err instanceof Error ? err : new Error(message));
       }
@@ -95,11 +102,24 @@ export async function POST(
 }
 
 /**
+ * Narrow guard for the closed-ReadableStreamDefaultController error we expect
+ * when a client aborts mid-stream. Anything else propagates up to a console
+ * log so genuine bugs aren't swallowed by the abort path.
+ */
+function isControllerClosed(err: unknown): boolean {
+  if (!(err instanceof TypeError)) return false;
+  const msg = err.message;
+  return (
+    msg.includes('Controller is already closed') ||
+    msg.includes('Invalid state')
+  );
+}
+
+/**
  * GET /api/run/[case] — fetch current thread state without advancing.
- * Used for case-tab switching when MemorySaver has cached state for this
- * case in this worker process. Returns null when the worker has no record
- * of the case (cold worker on Vercel, in-memory cache eviction) — the
- * client should re-show the countdown card rather than empty canvas.
+ * Returns has_run=false when the worker has no record of the case (cold
+ * worker on Vercel, in-memory cache eviction). The client re-shows the
+ * countdown rather than an empty canvas.
  */
 export async function GET(
   _req: NextRequest,

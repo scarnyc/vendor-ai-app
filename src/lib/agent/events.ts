@@ -139,6 +139,10 @@ export function encodeSse(event: AgUiEvent): string {
   try {
     return `event: ${event.type}\ndata: ${JSON.stringify(event)}\n\n`;
   } catch (err) {
+    console.error('[encodeSse] JSON.stringify failed; sending RUN_ERROR fallback', {
+      event_type: event.type,
+      err,
+    });
     const fallback: AgUiEvent = {
       type: 'RUN_ERROR',
       code: 'encode_failed',
@@ -156,8 +160,13 @@ export function encodeSse(event: AgUiEvent): string {
  * in order. Mirrors each node's `recordToolCall(...)` sequence in nodes.ts —
  * keep both in sync; the streaming integration test asserts START/END pairing.
  *
- * Static because nodes call plain async functions, not LangChain `Tool`
- * objects, so the runtime's tool-callback channel never fires.
+ * WHY static (rather than introspected from LangGraph at runtime): nodes in
+ * this repo call plain async functions in tools.ts directly, not LangChain
+ * `Tool` objects. LangGraph's tool-callback channel therefore never fires,
+ * and the stream layer has no other source of truth for "which tools will
+ * this node run next." Promoting the map to a typed constant lets us
+ * synthesize TOOL_CALL_START as soon as a node begins executing, instead of
+ * waiting for the TOOL_CALL_END that arrives only after the tool finishes.
  */
 export type EmittingNodeName =
   | 'parse_inputs'

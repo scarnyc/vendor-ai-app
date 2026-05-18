@@ -13,6 +13,13 @@ export interface StreamOptions {
   onMalformed: (raw: string, error: unknown) => void;
 }
 
+// 4 MB cap on the inter-frame buffer. A single SSE frame in this app stays
+// well under ~64 KB even when carrying a full DecisionPacket snapshot. If the
+// buffer ever grows past 4 MB we're either being fed a malformed stream that
+// will never terminate a frame, or memory-pressured by an upstream loop —
+// either way, throw instead of letting the page OOM.
+const MAX_BUFFER_BYTES = 4 * 1024 * 1024;
+
 export async function* streamAgUiEvents(
   url: string,
   init: RequestInit,
@@ -21,7 +28,19 @@ export async function* streamAgUiEvents(
   const response = await fetch(url, { ...init, signal: options.signal });
 
   if (!response.ok || !response.body) {
-    throw new Error(`SSE request failed: HTTP ${response.status}`);
+    // Surface the first chunk of the error body for diagnosis — a 500 from
+    // the route handler before SSE framing starts shows up as plain text
+    // here, and silently discarding it makes prod bugs untraceable.
+    let detail = '';
+    try {
+      const text = await response.text();
+      detail = text.slice(0, 200);
+    } catch {
+      // Body already consumed or unreadable — fall through with empty detail.
+    }
+    throw new Error(
+      `SSE request failed: HTTP ${response.status}${detail ? ` — ${detail}` : ''}`
+    );
   }
 
   const reader = response.body.getReader();
@@ -33,6 +52,11 @@ export async function* streamAgUiEvents(
       const { value, done } = await reader.read();
       if (done) break;
       buffer += decoder.decode(value, { stream: true });
+      if (buffer.length > MAX_BUFFER_BYTES) {
+        throw new Error(
+          `SSE buffer overflow: ${buffer.length} bytes without a frame terminator`
+        );
+      }
 
       // SSE frames terminate with a blank line (two consecutive LFs).
       let separatorIndex = buffer.indexOf('\n\n');

@@ -1,6 +1,6 @@
 #!/usr/bin/env node
-// Manual streaming-UX smoke for PR #7. Drives Playwright directly so state
-// survives across steps. Exercises the two unchecked test-plan items:
+// Manual streaming-UX smoke. Drives Playwright directly so state survives
+// across steps. Two scenarios:
 //
 //   1. case_001 → countdown (or rehydrate) → cards stream → packet renders
 //      → HITL gate → Approve → verdict banner

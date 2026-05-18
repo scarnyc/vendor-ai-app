@@ -99,8 +99,10 @@ export function useStreamingRun(
       message: `Stream corruption: ${detail}`,
       canRetry: true,
     });
-    runAbortRef.current?.abort();
-    resumeAbortRef.current?.abort();
+    // Abort whichever stream is actually live; aborting both would mask which
+    // surface produced the bad frame, and resume/run cannot both be in flight.
+    if (submittingRef.current) resumeAbortRef.current?.abort();
+    else runAbortRef.current?.abort();
   }, []);
 
   const openStream = useCallback(
@@ -210,8 +212,9 @@ export function useStreamingRun(
 
   const retry = useCallback(() => {
     // If MemorySaver still had state at last rehydrate, prefer re-reading
-    // it rather than re-POSTing (which would replay from the checkpoint
-    // but uses budget for the SSE round-trip).
+    // over re-POSTing — both are free of LLM cost (the POST replays from
+    // checkpoint when paused/done), but rehydrate skips the SSE handshake
+    // latency for a snappier "try again" feel.
     if (lastRehydrateRef.current?.hadState) {
       void rehydrate();
       return;

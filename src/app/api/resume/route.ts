@@ -18,12 +18,9 @@ const ResumeBodySchema = z.object({
  * POST /api/resume — AG-UI event stream over SSE.
  *
  * Submits a HumanDecision into the human_approval interrupt and streams the
- * resumed graph's terminal events. The stream observes whatever tool nodes
- * the resumed path traverses, so any future graph change that adds tool
- * work post-resume surfaces in the UI without further wiring.
- *
- * Validation failures stream a single RUN_ERROR frame instead of returning
- * JSON, so the client's event-stream contract holds on every code path.
+ * resumed graph's terminal events. Validation failures stream a single
+ * RUN_ERROR frame (text/event-stream) rather than JSON, so the client's
+ * event-stream contract holds on every code path.
  */
 export async function POST(req: NextRequest) {
   const json = await req.json().catch(() => null);
@@ -45,8 +42,7 @@ export async function POST(req: NextRequest) {
     });
   }
 
-  // See run/[case]/route.ts for the rationale — client-abort safety while
-  // letting the LangGraph iterator drain to a checkpointed terminal state.
+  // See run/[case]/route.ts for the rationale.
   const abort = new AbortController();
 
   const stream = new ReadableStream<Uint8Array>({
@@ -56,7 +52,10 @@ export async function POST(req: NextRequest) {
         if (abort.signal.aborted) return;
         try {
           controller.enqueue(encoder.encode(encodeSse(event)));
-        } catch {
+        } catch (err) {
+          if (!isControllerClosed(err)) {
+            console.error('[api/resume] unexpected controller.enqueue failure', err);
+          }
           abort.abort();
         }
       };
@@ -82,8 +81,10 @@ export async function POST(req: NextRequest) {
               recoverable: false,
             })
           );
-        } catch {
-          // Already errored — controller.error below still rejects the reader.
+        } catch (sendErr) {
+          if (!isControllerClosed(sendErr)) {
+            console.error('[api/resume] runError send failed', sendErr);
+          }
         }
         controller.error(err instanceof Error ? err : new Error(message));
       }
@@ -104,9 +105,22 @@ export async function POST(req: NextRequest) {
 }
 
 /**
- * Build a one-shot SSE response carrying a single RUN_ERROR frame. Used for
- * validation failures so the client's event-stream contract holds even on
- * the 400-equivalent path — no JSON branch the reducer would have to learn.
+ * Narrow guard for the closed-ReadableStreamDefaultController TypeError that
+ * fires when a client aborts mid-stream. Real bugs propagate to console.
+ */
+function isControllerClosed(err: unknown): boolean {
+  if (!(err instanceof TypeError)) return false;
+  const msg = err.message;
+  return (
+    msg.includes('Controller is already closed') ||
+    msg.includes('Invalid state')
+  );
+}
+
+/**
+ * One-shot SSE response carrying a single RUN_ERROR frame. Validation
+ * failures use this so the client's event-stream contract holds — no JSON
+ * branch the reducer would have to learn.
  */
 function sseErrorResponse(p: {
   code: string;

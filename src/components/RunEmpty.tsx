@@ -10,11 +10,7 @@ interface Props {
   onCancelCountdown: () => void;
 }
 
-/**
- * Pre-run affordance. Purely presentational — useStreamingRun owns the
- * countdown timer and the abort controllers; this component only renders
- * the current second and routes button clicks back to the hook.
- */
+// Pre-run affordance. useStreamingRun owns the timer + abort controllers.
 export function RunEmpty({
   caseMeta,
   busy,

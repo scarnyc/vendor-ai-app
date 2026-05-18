@@ -38,23 +38,14 @@ import type {
 } from './schemas';
 
 /**
- * v0.6 state graph (DESIGN §16.7) — wires the 14 nodes from nodes.ts into the
- * PNG topology with two structural changes vs §6g:
- *   1. await_run is the new initial state — operator's Run button issues
- *      Command({resume: "run"}) to pass through awaitRunNode.
- *   2. Edit-and-re-run loops from human_approval back to
- *      classify_data_sensitivity (LLM-driven nodes only; deterministic tool
- *      results are memoized in state and not recomputed).
- *
- * Channels mirror AgentStateSchema field-for-field. We use overwrite reducers
- * (omit `reducer:`) because nodes.ts already does explicit array concat for
- * tools_called/policy_flags — keeping it explicit at the node layer is easier
- * to reason about than spreading concat semantics across both surfaces.
- *
- * Checkpointer is MemorySaver — Vercel serverless ephemeral filesystem rules
- * out SqliteSaver (plan §13 finding #1 / §8). thread_id is passed at invoke
- * time as `configurable.thread_id` and lives in the URL search params so a
- * cold-start retry can resume cleanly.
+ * State graph (DESIGN §16.7). Two WHYs worth preserving:
+ *   - Overwrite reducers (no explicit `reducer:`): node code in nodes.ts
+ *     already does explicit array concat for tools_called/policy_flags, so
+ *     channel-level concat semantics would double-append. Keep concat in
+ *     one place.
+ *   - MemorySaver checkpointer: Vercel's ephemeral filesystem rules out
+ *     SqliteSaver. thread_id rides the URL search params so a cold-start
+ *     retry can resume cleanly.
  */
 const StateAnnotation = Annotation.Root({
   case_id: Annotation<string>,
@@ -134,16 +125,14 @@ declare global {
   var __vendorai_checkpointer: MemorySaver | undefined;
 }
 
-const checkpointer =
-  globalThis.__vendorai_checkpointer ??
-  (globalThis.__vendorai_checkpointer = new MemorySaver());
+globalThis.__vendorai_checkpointer ??= new MemorySaver();
+const checkpointer = globalThis.__vendorai_checkpointer;
 
 export const graph = builder.compile({ checkpointer });
 
 /**
- * Build a fresh seed state for a case. Caller passes case_id; we initialize
- * arrays + nulls so node code can rely on `state.tools_called` always being
- * iterable.
+ * Fresh seed state for a case. Initializes arrays + nulls so node code can
+ * rely on `state.tools_called` always being iterable.
  */
 export function seedState(caseId: string): AgentStateAnnotation {
   return {

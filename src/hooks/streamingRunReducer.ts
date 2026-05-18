@@ -152,7 +152,10 @@ function applyEvent(state: StreamingRunState, event: AgUiEvent): StreamingRunSta
 
     case 'STATE_DELTA': {
       const [head, ...rest] = event.path;
-      if (!head) return state;
+      if (!head) {
+        console.warn('[reducer] dropping STATE_DELTA with empty path', event);
+        return state;
+      }
       if (rest.length === 0) {
         return {
           ...state,
@@ -170,6 +173,9 @@ function applyEvent(state: StreamingRunState, event: AgUiEvent): StreamingRunSta
           },
         };
       }
+      // Nested paths aren't supported yet — surface the dropped event so we
+      // notice if a node starts emitting them instead of silently desyncing.
+      console.warn('[reducer] dropping STATE_DELTA with unsupported nested path', event);
       return state;
     }
 

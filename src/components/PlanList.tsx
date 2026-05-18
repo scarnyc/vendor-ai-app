@@ -10,6 +10,7 @@ const STEPS = [
   { node: 'run_deterministic_tools', label: 'Run deterministic tools' },
   { node: 'classify_data_sensitivity', label: 'Classify data sensitivity' },
   { node: 'determine_required_approvals', label: 'Determine required approvals' },
+  { node: 'extract_candidate_clauses', label: 'Extract candidate clauses' },
   { node: 'prepare_decision_packet', label: 'Prepare decision packet' },
   { node: 'validate_citations', label: 'Validate citations' },
   { node: 'human_approval', label: 'Human approval' },
