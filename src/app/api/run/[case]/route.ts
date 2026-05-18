@@ -32,15 +32,27 @@ export async function POST(
 
   const providerLabel = getProviderInfo().label;
 
+  // Shared with start()/cancel() so a client abort flips it and the for-await
+  // stops trying to enqueue into a closed controller. The graph.stream()
+  // iterator inside streamRun keeps draining server-side regardless — that's
+  // intentional, so MemorySaver still commits even if the client disconnects.
+  const abort = new AbortController();
+
   const stream = new ReadableStream<Uint8Array>({
     async start(controller) {
       const encoder = new TextEncoder();
       const send = (event: AgUiEvent) => {
-        controller.enqueue(encoder.encode(encodeSse(event)));
+        if (abort.signal.aborted) return;
+        try {
+          controller.enqueue(encoder.encode(encodeSse(event)));
+        } catch {
+          abort.abort();
+        }
       };
 
       try {
         for await (const event of streamRun(caseId, { kind: 'run' })) {
+          if (abort.signal.aborted) break;
           // streamRun emits RUN_STARTED with provider='unspecified' so the
           // generator stays pure. Rewrite it here so the wire carries the
           // live provider label.
@@ -50,8 +62,9 @@ export async function POST(
             send(event);
           }
         }
-        controller.close();
+        if (!abort.signal.aborted) controller.close();
       } catch (err) {
+        if (abort.signal.aborted) return;
         const message = err instanceof Error ? err.message : String(err);
         console.error('[api/run] graph stream error', err);
         try {
@@ -65,6 +78,9 @@ export async function POST(
         }
         controller.error(err instanceof Error ? err : new Error(message));
       }
+    },
+    cancel() {
+      abort.abort();
     },
   });
 

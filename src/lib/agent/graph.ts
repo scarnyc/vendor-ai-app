@@ -125,7 +125,18 @@ builder.addEdge('escalate_to_human', END);
 
 builder.addEdge('emit_final', END);
 
-const checkpointer = new MemorySaver();
+// Next.js dev (Turbopack) re-evaluates modules on Fast Refresh, which would
+// replace a module-local `new MemorySaver()` with a fresh empty instance and
+// silently drop every thread checkpoint. Cache on globalThis so the in-process
+// singleton survives HMR. Harmless in prod — there's only one module load.
+declare global {
+  // eslint-disable-next-line no-var
+  var __vendorai_checkpointer: MemorySaver | undefined;
+}
+
+const checkpointer =
+  globalThis.__vendorai_checkpointer ??
+  (globalThis.__vendorai_checkpointer = new MemorySaver());
 
 export const graph = builder.compile({ checkpointer });
 

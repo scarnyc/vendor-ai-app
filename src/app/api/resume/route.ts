@@ -45,11 +45,20 @@ export async function POST(req: NextRequest) {
     });
   }
 
+  // See run/[case]/route.ts for the rationale — client-abort safety while
+  // letting the LangGraph iterator drain to a checkpointed terminal state.
+  const abort = new AbortController();
+
   const stream = new ReadableStream<Uint8Array>({
     async start(controller) {
       const encoder = new TextEncoder();
       const send = (event: AgUiEvent) => {
-        controller.enqueue(encoder.encode(encodeSse(event)));
+        if (abort.signal.aborted) return;
+        try {
+          controller.enqueue(encoder.encode(encodeSse(event)));
+        } catch {
+          abort.abort();
+        }
       };
 
       try {
@@ -57,10 +66,12 @@ export async function POST(req: NextRequest) {
           kind: 'resume',
           decision,
         })) {
+          if (abort.signal.aborted) break;
           send(event);
         }
-        controller.close();
+        if (!abort.signal.aborted) controller.close();
       } catch (err) {
+        if (abort.signal.aborted) return;
         const message = err instanceof Error ? err.message : String(err);
         console.error('[api/resume] graph stream error', err);
         try {
@@ -76,6 +87,9 @@ export async function POST(req: NextRequest) {
         }
         controller.error(err instanceof Error ? err : new Error(message));
       }
+    },
+    cancel() {
+      abort.abort();
     },
   });
 
