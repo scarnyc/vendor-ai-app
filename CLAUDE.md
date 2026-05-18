@@ -21,8 +21,9 @@ against seven internal policies, emits a `DecisionPacket` for one human
 The agent **never** approves spend, **never** sends external messages,
 **never** accepts contract language, **never** makes the final security or
 privacy decision. Every code path, schema field, and UI button is designed
-*against* these constraints. See `DESIGN.md §10` for the
-hard-line → component → control mapping.
+*against* these constraints. See `DESIGN.md §1` (and the §5 component
+inventory designed against it) for the hard-line → component → control
+mapping.
 
 ## Stack (planned — scaffold not yet in repo)
 
