@@ -13,13 +13,9 @@ export const maxDuration = 300;
  * POST /api/run/[case] — AG-UI event stream over SSE.
  *
  * Streams typed events as the LangGraph thread keyed by case_id advances.
- * Event-generation lives in `streamRun()`; this handler is the SSE framing
- * + provider-label rewrite + lifecycle (close / error).
- *
- * Sequence (happy path):
- *   RUN_STARTED → (per node) TOOL_CALL_START... STATE_DELTA... TOOL_CALL_END...
- *   → STATE_SNAPSHOT (after validate_citations; safe to render packet)
- *   → RUN_PAUSED_AWAITING_HUMAN (HITL) | RUN_FINISHED (escalation branch)
+ * Event-generation lives in `streamRun()`; the event ordering invariants
+ * are documented there. This handler is just SSE framing + provider-label
+ * rewrite + lifecycle (close / error).
  */
 export async function POST(
   _req: NextRequest,
@@ -45,17 +41,19 @@ export async function POST(
 
       try {
         for await (const event of streamRun(caseId, { kind: 'run' })) {
-          // streamRun emits RUN_STARTED with provider='unspecified' so it
-          // stays pure (no LLM-module import). Rewrite it here so the wire
-          // carries the live provider label.
+          // streamRun emits RUN_STARTED with provider='unspecified' so the
+          // generator stays pure. Rewrite it here so the wire carries the
+          // live provider label.
           if (event.type === 'RUN_STARTED') {
             send({ ...event, provider: providerLabel });
           } else {
             send(event);
           }
         }
+        controller.close();
       } catch (err) {
         const message = err instanceof Error ? err.message : String(err);
+        console.error('[api/run] graph stream error', err);
         try {
           send(events.runError({
             code: 'graph_error',
@@ -63,10 +61,9 @@ export async function POST(
             recoverable: false,
           }));
         } catch {
-          // Controller may already be closed; swallow.
+          // Already errored — controller.error below still rejects the reader.
         }
-      } finally {
-        controller.close();
+        controller.error(err instanceof Error ? err : new Error(message));
       }
     },
   });

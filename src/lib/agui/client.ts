@@ -1,26 +1,16 @@
 import { AgUiEventSchema, type AgUiEvent } from '@/lib/agent/events';
 
 /**
- * Hand-rolled SSE reader over `fetch` + `ReadableStream` — NOT `EventSource`.
- *
- * Why not EventSource: it's GET-only and we POST to `/api/run/[case]` (and
- * `/api/resume`) with request bodies. fetch + ReadableStream lets us keep
- * one transport for both routes.
- *
- * Frame format expected from the server: `event: <type>\ndata: <json>\n\n`.
- * The `event:` field is ignored on parse — the JSON body has the same `type`
- * discriminant the client Zod-validates, so it's the single source of truth.
- * (This keeps us robust to byte-order surprises and lets the same parser
- * accept the slimmer `data: <json>\n\n` frames a future change might emit.)
- *
- * Schema discipline: every frame is Zod-parsed against `AgUiEventSchema`
- * before being yielded. Malformed frames are reported to the caller through
- * `onMalformed` (default: swallow) so a stray newline can't poison the
- * reducer. The caller's `signal` aborts the underlying fetch and the loop.
+ * Hand-rolled SSE reader over `fetch` + `ReadableStream`. EventSource is
+ * GET-only; we POST request bodies, so we re-implement the framing here.
+ * Frame format: `event: <type>\ndata: <json>\n\n`. The JSON body carries
+ * the type discriminant and is the single source of truth — `event:` is
+ * ignored. `onMalformed` is required so parse failures cannot silently
+ * strand the reducer waiting on events that will never arrive.
  */
 export interface StreamOptions {
   signal: AbortSignal;
-  onMalformed?: (raw: string, error: unknown) => void;
+  onMalformed: (raw: string, error: unknown) => void;
 }
 
 export async function* streamAgUiEvents(
@@ -59,7 +49,7 @@ export async function* streamAgUiEvents(
             const parsed = AgUiEventSchema.parse(JSON.parse(json));
             yield parsed;
           } catch (err) {
-            options.onMalformed?.(json, err);
+            options.onMalformed(json, err);
           }
         }
 

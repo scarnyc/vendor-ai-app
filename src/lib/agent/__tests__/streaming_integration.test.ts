@@ -38,10 +38,10 @@ function reconstructFromStream(events: AgUiEvent[]): AccumulatedState {
     if (event.type === 'STATE_DELTA') {
       const [head, ...rest] = event.path;
       if (rest.length !== 0) continue;
+      // decision_packet never arrives via STATE_DELTA — stream.ts suppresses
+      // that delta so the validated packet rides the wire once via SNAPSHOT.
       if (head === 'policy_flags') state.policy_flags = event.value as AgentState['policy_flags'];
       else if (head === 'run_status') state.run_status = event.value as AgentState['run_status'];
-      else if (head === 'decision_packet')
-        state.decision_packet = event.value as AgentState['decision_packet'];
     } else if (event.type === 'STATE_SNAPSHOT') {
       state.decision_packet = event.decision_packet;
     } else if (event.type === 'TOOL_CALL_END') {

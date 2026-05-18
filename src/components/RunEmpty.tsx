@@ -11,15 +11,9 @@ interface Props {
 }
 
 /**
- * Pre-run affordance. Three visual states driven by `countdownSecondsRemaining`:
- *   - number > 0  → first-visit auto-start countdown with a Cancel button
- *   - null + idle → static "▶ Run agent" button (post-cancel or returning visit
- *                   with no cached state)
- *   - busy        → "Running…" pending state on the run button
- *
- * The countdown ticks down externally (useStreamingRun owns the timer); this
- * component is presentational. Cancel maps to onCancelCountdown so the hook
- * tears down the timer cleanly.
+ * Pre-run affordance. Purely presentational — useStreamingRun owns the
+ * countdown timer and the abort controllers; this component only renders
+ * the current second and routes button clicks back to the hook.
  */
 export function RunEmpty({
   caseMeta,

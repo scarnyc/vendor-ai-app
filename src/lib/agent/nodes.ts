@@ -509,7 +509,31 @@ export async function validateCitationsNode(state: AgentState): Promise<StateUpd
   }
   const allCitations = state.decision_packet.policy_flags.flatMap((f) => f.citations);
   const startedAt = Date.now();
-  const { unverified } = await validateCitations(allCitations);
+
+  let unverified;
+  try {
+    ({ unverified } = await validateCitations(allCitations));
+  } catch (err) {
+    const reason = err instanceof Error ? err.message : String(err);
+    console.error('[validate_citations] verbatim-substring check threw', err);
+    // §9 protection: a packet whose citations could not be verified must
+    // NOT reach the operator as if validated. Escalate and surface the
+    // reason; downstream stream.ts gates STATE_SNAPSHOT on absence of `error`.
+    return {
+      run_status: 'escalated',
+      error: `citation_validation_failed: ${reason}`,
+      current_node: 'validate_citations',
+      tools_called: [
+        ...state.tools_called,
+        recordToolCall(
+          'validate_citations',
+          { citations: allCitations.length },
+          { error: reason },
+          startedAt
+        ),
+      ],
+    };
+  }
 
   const unverifiedKeys = new Set(
     unverified.map((c) => `${c.policy_doc}|${c.section}|${c.quote}`)

@@ -2,7 +2,7 @@ import { Command } from '@langchain/langgraph';
 import { graph, seedState } from './graph';
 import {
   events,
-  NODE_TOOL_MAP,
+  toolsForNode,
   type AgUiEvent,
 } from './events';
 import type {
@@ -92,9 +92,9 @@ export async function* streamRun(
   for await (const chunk of iterator) {
     const updates = chunk as Record<string, Partial<AgentState>>;
     for (const [nodeName, update] of Object.entries(updates)) {
-      const toolsForNode = NODE_TOOL_MAP[nodeName];
-      if (toolsForNode && !announcedTools.has(nodeName)) {
-        for (const toolName of toolsForNode) {
+      const nodeTools = toolsForNode(nodeName);
+      if (nodeTools && !announcedTools.has(nodeName)) {
+        for (const toolName of nodeTools) {
           yield events.toolCallStart({ tool_name: toolName, args: {} });
         }
         announcedTools.add(nodeName);
@@ -108,6 +108,10 @@ export async function* streamRun(
             yield events.toolCallEnd(record);
           }
           lastToolsLen = records.length;
+        } else if (key === 'decision_packet') {
+          // Skip the redundant STATE_DELTA: the packet rides the wire once,
+          // via STATE_SNAPSHOT post-validate_citations. Keeping the delta in
+          // accumulated state below preserves the snapshot's source-of-truth.
         } else {
           yield events.stateDelta([key], value);
         }
@@ -117,7 +121,11 @@ export async function* streamRun(
       if (
         nodeName === 'validate_citations' &&
         !snapshotEmitted &&
-        accumulated.decision_packet
+        accumulated.decision_packet &&
+        // §9 protection: never snapshot a packet whose citation gate failed.
+        // validateCitationsNode sets `error` on the run; stream must keep the
+        // packet off the wire so the operator never sees an unvalidated one.
+        !accumulated.error
       ) {
         yield events.stateSnapshot(accumulated.decision_packet as DecisionPacket);
         snapshotEmitted = true;
@@ -129,7 +137,11 @@ export async function* streamRun(
   const interrupted = (finalSnap.next?.length ?? 0) > 0;
 
   if (interrupted) {
-    if (!snapshotEmitted && finalSnap.values.decision_packet) {
+    if (
+      !snapshotEmitted &&
+      finalSnap.values.decision_packet &&
+      !finalSnap.values.error
+    ) {
       yield events.stateSnapshot(
         finalSnap.values.decision_packet as DecisionPacket
       );

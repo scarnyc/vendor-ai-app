@@ -13,30 +13,28 @@ import { ConfirmationCard } from './ConfirmationCard';
 import { RunEmpty } from './RunEmpty';
 import { PolicyDrawer } from './PolicyDrawer';
 
-/**
- * Workbench — streaming AG-UI consumer.
- *
- * State, tool audit cards, decision packet, and HITL gate all build
- * progressively from the SSE event stream owned by useStreamingRun. The
- * legacy plain-JSON POST + polling fallback was retired with the streaming
- * refactor; MemorySaver still backs return-visit rehydration via GET.
- */
 export function Workbench() {
   const [caseId, setCaseId] = useState<CaseId>('case_001');
   const [drawerCitation, setDrawerCitation] = useState<PolicyCitation | null>(null);
 
   const run = useStreamingRun(caseId);
+  const { state } = run;
   const caseMeta = CASES[caseId];
 
-  const runStatus = run.agentState.run_status ?? 'await_run';
-  const currentNode = run.agentState.current_node ?? null;
-  const decisionPacket = run.decisionPacket;
-  const tools = run.tools;
-  const inFlightTool = run.inFlightTools.at(-1) ?? null;
+  const runStatus = state.agentState.run_status ?? 'await_run';
+  const currentNode = state.agentState.current_node ?? null;
+  const decisionPacket = state.decisionPacket;
+  const tools = state.tools;
+  const inFlightTool = state.inFlightTools.at(-1) ?? null;
 
-  const busy = run.phase === 'streaming' || run.phase === 'countdown';
+  const busy = state.phase === 'streaming' || state.phase === 'countdown';
   const showRunEmpty =
-    (run.phase === 'idle' || run.phase === 'countdown') && tools.length === 0;
+    (state.phase === 'idle' || state.phase === 'countdown') && tools.length === 0;
+  const countdownSecondsRemaining =
+    state.phase === 'countdown' ? state.countdownSecondsRemaining : null;
+  const errorBlock = state.phase === 'error'
+    ? { message: state.errorMessage, code: state.errorCode, canRetry: state.canRetry }
+    : null;
 
   return (
     <div className="app">
@@ -51,7 +49,7 @@ export function Workbench() {
 
         <div className="canvas-body">
           <div className="canvas-body-inner">
-            {run.errorMessage && (
+            {errorBlock && (
               <div
                 className="flag f-block"
                 role="alert"
@@ -61,16 +59,23 @@ export function Workbench() {
                 <div className="flag-body">
                   <div className="flag-recipient">→ Operator</div>
                   <div className="flag-issue">
-                    {run.errorMessage}
-                    {' · '}
-                    <button
-                      type="button"
-                      className="btn"
-                      onClick={run.retry}
-                      style={{ marginLeft: 8 }}
-                    >
-                      Retry
-                    </button>
+                    {errorBlock.message}
+                    <span style={{ opacity: 0.6, fontSize: 11, marginLeft: 6 }}>
+                      ({errorBlock.code})
+                    </span>
+                    {errorBlock.canRetry && (
+                      <>
+                        {' · '}
+                        <button
+                          type="button"
+                          className="btn"
+                          onClick={run.retry}
+                          style={{ marginLeft: 8 }}
+                        >
+                          Retry
+                        </button>
+                      </>
+                    )}
                   </div>
                 </div>
               </div>
@@ -80,7 +85,7 @@ export function Workbench() {
               <RunEmpty
                 caseMeta={caseMeta}
                 busy={busy}
-                countdownSecondsRemaining={run.countdownSecondsRemaining}
+                countdownSecondsRemaining={countdownSecondsRemaining}
                 onRun={run.startNow}
                 onCancelCountdown={run.cancelCountdown}
               />
@@ -117,10 +122,10 @@ export function Workbench() {
                     packet={decisionPacket}
                     onCitationClick={setDrawerCitation}
                   >
-                    {run.phase === 'paused' || run.phase === 'finished' ? (
+                    {state.phase === 'paused' || state.phase === 'finished' ? (
                       <ConfirmationCard
                         packet={decisionPacket}
-                        busy={run.phase !== 'paused'}
+                        busy={state.phase !== 'paused'}
                         onSubmit={run.submitDecision}
                       />
                     ) : null}

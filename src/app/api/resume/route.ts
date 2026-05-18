@@ -18,14 +18,9 @@ const ResumeBodySchema = z.object({
  * POST /api/resume — AG-UI event stream over SSE.
  *
  * Submits a HumanDecision into the human_approval interrupt and streams the
- * resumed graph's terminal events. Today, all four verdicts route through
- * emit_final to END (no further tool nodes); the resume stream is therefore
- * short: RUN_RESUMED → STATE_DELTA(human_decision, run_status) → RUN_FINISHED.
- *
- * The stream still observes TOOL_CALL_START/END for any node it traverses,
- * so a future graph change that adds tool work to the post-resume path
- * (e.g. spinning up draft_vendor_followup for the follow_up verdict) will
- * surface in the UI without further wiring.
+ * resumed graph's terminal events. The stream observes whatever tool nodes
+ * the resumed path traverses, so any future graph change that adds tool
+ * work post-resume surfaces in the UI without further wiring.
  *
  * Validation failures stream a single RUN_ERROR frame instead of returning
  * JSON, so the client's event-stream contract holds on every code path.
@@ -64,8 +59,10 @@ export async function POST(req: NextRequest) {
         })) {
           send(event);
         }
+        controller.close();
       } catch (err) {
         const message = err instanceof Error ? err.message : String(err);
+        console.error('[api/resume] graph stream error', err);
         try {
           send(
             events.runError({
@@ -75,10 +72,9 @@ export async function POST(req: NextRequest) {
             })
           );
         } catch {
-          // Controller may already be closed; swallow.
+          // Already errored — controller.error below still rejects the reader.
         }
-      } finally {
-        controller.close();
+        controller.error(err instanceof Error ? err : new Error(message));
       }
     },
   });

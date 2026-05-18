@@ -2,175 +2,37 @@
 
 import { useCallback, useEffect, useReducer, useRef, useState } from 'react';
 import type { CaseId } from '@/lib/cases';
-import type {
-  AgentState,
-  DecisionPacket,
-  HumanDecision,
-  ToolCallRecord,
-} from '@/lib/agent/schemas';
-import type { AgUiEvent, ToolName } from '@/lib/agent/events';
+import type { AgentState, HumanDecision } from '@/lib/agent/schemas';
 import { streamAgUiEvents } from '@/lib/agui/client';
+import {
+  INITIAL_STATE,
+  reducer,
+  type StreamingRunState,
+  type StreamPhase,
+} from './streamingRunReducer';
 
 /**
  * useStreamingRun — owns the SSE lifecycle for a single case_id.
  *
- * Three observable states:
- *   idle      — countdown not started, no live stream
- *   streaming — fetch + SSE reader is consuming events into state
- *   paused    — RUN_PAUSED_AWAITING_HUMAN was received; awaiting operator
- *               input via `submitDecision()`
- *   finished  — RUN_FINISHED received (post-resume terminal state)
- *   error     — RUN_ERROR received, or fetch threw
+ * The returned `state` is a discriminated union over `phase`; the compiler
+ * enforces, e.g., that 'paused' always carries a non-null `decisionPacket`.
+ * The pure reducer lives in ./streamingRunReducer so it's unit-testable
+ * without spinning up React.
  *
- * Disconnect policy (per plan): NO auto-retry. If the connection drops mid-
- * stream, the hook surfaces an `error` state with a `retry()` action; the
- * server's MemorySaver checkpoint means re-POSTing replays from cache.
+ * Disconnect policy (per plan): NO auto-retry. The hook surfaces an 'error'
+ * state with a `retry()` action. The server's MemorySaver checkpoint means
+ * retry replays from cache when state was reached, or POSTs fresh otherwise.
  *
  * React 19 strict-mode safety: a second mount cycle for the same case while
- * a stream is in flight is a no-op. The hook uses a ref to dedupe.
+ * a stream is in flight is a no-op. The hook dedupes via `streamingCases`
+ * (cleared synchronously on cleanup so a rapid re-mount can start a fresh
+ * stream).
  *
  * Multi-tab / case-switch safety: countdown timers and abort controllers
- * live inside `useEffect` cleanups, so navigating away cancels cleanly.
+ * are owned by `useEffect` cleanups, so navigating away cancels cleanly.
  */
 
-export type StreamPhase =
-  | 'idle'
-  | 'countdown'
-  | 'streaming'
-  | 'paused'
-  | 'finished'
-  | 'error';
-
-export interface StreamingRunState {
-  phase: StreamPhase;
-  agentState: Partial<AgentState>;
-  decisionPacket: DecisionPacket | null;
-  tools: ToolCallRecord[];
-  inFlightTools: ToolName[];
-  errorMessage: string | null;
-}
-
-const INITIAL_STATE: StreamingRunState = {
-  phase: 'idle',
-  agentState: {},
-  decisionPacket: null,
-  tools: [],
-  inFlightTools: [],
-  errorMessage: null,
-};
-
-type Action =
-  | { kind: 'reset_to_idle' }
-  | { kind: 'hydrate'; state: AgentState }
-  | { kind: 'set_phase'; phase: StreamPhase }
-  | { kind: 'event'; event: AgUiEvent }
-  | { kind: 'error'; message: string };
-
-function reducer(state: StreamingRunState, action: Action): StreamingRunState {
-  switch (action.kind) {
-    case 'reset_to_idle':
-      return INITIAL_STATE;
-    case 'hydrate':
-      return {
-        phase: action.state.decision_packet ? 'paused' : 'streaming',
-        agentState: action.state,
-        decisionPacket: action.state.decision_packet,
-        tools: action.state.tools_called,
-        inFlightTools: [],
-        errorMessage: null,
-      };
-    case 'set_phase':
-      return { ...state, phase: action.phase };
-    case 'event':
-      return applyEvent(state, action.event);
-    case 'error':
-      return { ...state, phase: 'error', errorMessage: action.message };
-  }
-}
-
-function applyEvent(state: StreamingRunState, event: AgUiEvent): StreamingRunState {
-  switch (event.type) {
-    case 'RUN_STARTED':
-      return { ...state, phase: 'streaming', errorMessage: null };
-    case 'TOOL_CALL_START':
-      return {
-        ...state,
-        inFlightTools: [...state.inFlightTools, event.tool_name],
-      };
-    case 'TOOL_CALL_END': {
-      const record = event.tool_call;
-      const inFlight = [...state.inFlightTools];
-      const idx = inFlight.indexOf(record.tool_name);
-      if (idx !== -1) inFlight.splice(idx, 1);
-      return {
-        ...state,
-        tools: [...state.tools, record],
-        inFlightTools: inFlight,
-      };
-    }
-    case 'STATE_DELTA': {
-      // path is array of string keys; '-' means array append. Only top-level
-      // single-key deltas are emitted by the server today, but the reducer
-      // handles the append form so a future change doesn't silently no-op.
-      const [head, ...rest] = event.path;
-      if (!head) return state;
-      if (rest.length === 0) {
-        return {
-          ...state,
-          agentState: { ...state.agentState, [head]: event.value },
-        };
-      }
-      if (rest.length === 1 && rest[0] === '-') {
-        const current = (state.agentState as Record<string, unknown>)[head];
-        const arr = Array.isArray(current) ? current : [];
-        return {
-          ...state,
-          agentState: {
-            ...state.agentState,
-            [head]: [...arr, event.value],
-          },
-        };
-      }
-      return state;
-    }
-    case 'STATE_SNAPSHOT':
-      return {
-        ...state,
-        decisionPacket: event.decision_packet,
-        agentState: {
-          ...state.agentState,
-          decision_packet: event.decision_packet,
-        },
-      };
-    case 'RUN_PAUSED_AWAITING_HUMAN':
-      return { ...state, phase: 'paused' };
-    case 'RUN_RESUMED':
-      return {
-        ...state,
-        phase: 'streaming',
-        agentState: {
-          ...state.agentState,
-          human_decision: event.human_decision,
-        },
-      };
-    case 'RUN_FINISHED':
-      return {
-        ...state,
-        phase: 'finished',
-        agentState: event.final_state,
-        decisionPacket:
-          event.final_state.decision_packet ?? state.decisionPacket,
-        tools: event.final_state.tools_called ?? state.tools,
-        inFlightTools: [],
-      };
-    case 'RUN_ERROR':
-      return {
-        ...state,
-        phase: 'error',
-        errorMessage: event.message,
-      };
-  }
-}
+export type { StreamPhase, StreamingRunState };
 
 interface ProviderInfo {
   label: string;
@@ -192,8 +54,8 @@ export interface UseStreamingRunOptions {
   countdownMs?: number;
 }
 
-export interface UseStreamingRunResult extends StreamingRunState {
-  countdownSecondsRemaining: number | null;
+export interface UseStreamingRunResult {
+  state: StreamingRunState;
   provider: ProviderInfo | null;
   startNow: () => void;
   cancelCountdown: () => void;
@@ -208,12 +70,13 @@ export function useStreamingRun(
   const countdownMs = options.countdownMs ?? 3000;
 
   const [state, dispatch] = useReducer(reducer, INITIAL_STATE);
-  const abortRef = useRef<AbortController | null>(null);
+  const runAbortRef = useRef<AbortController | null>(null);
+  const resumeAbortRef = useRef<AbortController | null>(null);
   const streamingCases = useRef<Set<CaseId>>(new Set());
-  const seenCases = useRef<Set<CaseId>>(new Set());
+  const submittingRef = useRef<boolean>(false);
+  const lastRehydrateRef = useRef<{ caseId: CaseId; hadState: boolean } | null>(null);
   const countdownTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const countdownTick = useRef<ReturnType<typeof setInterval> | null>(null);
-  const [countdownRemaining, setCountdownRemaining] = useState<number | null>(null);
   const [provider, setProvider] = useState<ProviderInfo | null>(null);
 
   const clearCountdown = useCallback(() => {
@@ -225,8 +88,20 @@ export function useStreamingRun(
       clearInterval(countdownTick.current);
       countdownTick.current = null;
     }
-    setCountdownRemaining(null);
-  }, [setCountdownRemaining]);
+  }, []);
+
+  const handleMalformed = useCallback((raw: string, err: unknown) => {
+    const detail = err instanceof Error ? err.message : String(err);
+    console.error('[useStreamingRun] malformed SSE frame', { raw, detail });
+    dispatch({
+      kind: 'error',
+      code: 'malformed_event',
+      message: `Stream corruption: ${detail}`,
+      canRetry: true,
+    });
+    runAbortRef.current?.abort();
+    resumeAbortRef.current?.abort();
+  }, []);
 
   const openStream = useCallback(
     (url: string, init: RequestInit) => {
@@ -234,51 +109,98 @@ export function useStreamingRun(
       streamingCases.current.add(caseId);
 
       const controller = new AbortController();
-      abortRef.current = controller;
+      runAbortRef.current = controller;
 
       (async () => {
         try {
           for await (const event of streamAgUiEvents(url, init, {
             signal: controller.signal,
+            onMalformed: handleMalformed,
           })) {
             dispatch({ kind: 'event', event });
           }
         } catch (err) {
           if (controller.signal.aborted) return;
           const message = err instanceof Error ? err.message : 'Stream failed';
-          dispatch({ kind: 'error', message });
+          dispatch({
+            kind: 'error',
+            code: 'stream_failed',
+            message,
+            canRetry: true,
+          });
         } finally {
           streamingCases.current.delete(caseId);
-          if (abortRef.current === controller) abortRef.current = null;
+          if (runAbortRef.current === controller) runAbortRef.current = null;
         }
       })();
     },
-    [caseId]
+    [caseId, handleMalformed]
   );
 
   const startStream = useCallback(() => {
     clearCountdown();
-    dispatch({ kind: 'set_phase', phase: 'streaming' });
+    dispatch({ kind: 'enter_streaming' });
     openStream(`/api/run/${caseId}`, { method: 'POST' });
   }, [caseId, clearCountdown, openStream]);
 
+  const rehydrate = useCallback(async (): Promise<boolean> => {
+    try {
+      const res = await fetch(`/api/run/${caseId}`);
+      if (!res.ok) {
+        dispatch({
+          kind: 'error',
+          code: res.status >= 500 ? 'rehydrate_server_error' : 'rehydrate_failed',
+          message: `Rehydrate failed: HTTP ${res.status}`,
+          canRetry: true,
+        });
+        return false;
+      }
+      const data = (await res.json()) as RehydrateResponse;
+      if (data.provider) setProvider(data.provider);
+      if (data.state && data.has_run) {
+        dispatch({
+          kind: 'hydrate',
+          state: data.state,
+          interrupted: data.interrupted,
+        });
+        lastRehydrateRef.current = { caseId, hadState: true };
+        return true;
+      }
+      lastRehydrateRef.current = { caseId, hadState: false };
+      return false;
+    } catch (err) {
+      const message = err instanceof Error ? err.message : 'Rehydrate failed';
+      dispatch({
+        kind: 'error',
+        code: 'rehydrate_network_error',
+        message,
+        canRetry: true,
+      });
+      return false;
+    }
+  }, [caseId]);
+
   const armCountdown = useCallback(() => {
     clearCountdown();
-    dispatch({ kind: 'set_phase', phase: 'countdown' });
-    setCountdownRemaining(Math.ceil(countdownMs / 1000));
+    dispatch({
+      kind: 'enter_countdown',
+      secondsRemaining: Math.ceil(countdownMs / 1000),
+    });
 
+    let remaining = Math.ceil(countdownMs / 1000);
     countdownTick.current = setInterval(() => {
-      setCountdownRemaining((prev) => (prev != null && prev > 0 ? prev - 1 : prev));
+      remaining = Math.max(0, remaining - 1);
+      dispatch({ kind: 'countdown_tick', secondsRemaining: remaining });
     }, 1000);
 
     countdownTimer.current = setTimeout(() => {
       startStream();
     }, countdownMs);
-  }, [clearCountdown, countdownMs, setCountdownRemaining, startStream]);
+  }, [clearCountdown, countdownMs, startStream]);
 
   const cancelCountdown = useCallback(() => {
     clearCountdown();
-    dispatch({ kind: 'set_phase', phase: 'idle' });
+    dispatch({ kind: 'reset_to_idle' });
   }, [clearCountdown]);
 
   const startNow = useCallback(() => {
@@ -287,13 +209,26 @@ export function useStreamingRun(
   }, [caseId, startStream]);
 
   const retry = useCallback(() => {
+    // If MemorySaver still had state at last rehydrate, prefer re-reading
+    // it rather than re-POSTing (which would replay from the checkpoint
+    // but uses budget for the SSE round-trip).
+    if (lastRehydrateRef.current?.hadState) {
+      void rehydrate();
+      return;
+    }
     startStream();
-  }, [startStream]);
+  }, [rehydrate, startStream]);
 
   const submitDecision = useCallback(
     async (decision: HumanDecision) => {
+      // Synchronous re-entrance guard — protects against React 19 strict
+      // mode double-mount and operator double-clicks that would otherwise
+      // fire two POST /api/resume requests.
+      if (submittingRef.current) return;
+      submittingRef.current = true;
+
       const controller = new AbortController();
-      abortRef.current = controller;
+      resumeAbortRef.current = controller;
       try {
         for await (const event of streamAgUiEvents(
           '/api/resume',
@@ -302,19 +237,25 @@ export function useStreamingRun(
             headers: { 'content-type': 'application/json' },
             body: JSON.stringify({ case_id: caseId, decision }),
           },
-          { signal: controller.signal }
+          { signal: controller.signal, onMalformed: handleMalformed }
         )) {
           dispatch({ kind: 'event', event });
         }
       } catch (err) {
         if (controller.signal.aborted) return;
         const message = err instanceof Error ? err.message : 'Resume failed';
-        dispatch({ kind: 'error', message });
+        dispatch({
+          kind: 'error',
+          code: 'resume_failed',
+          message,
+          canRetry: false,
+        });
       } finally {
-        if (abortRef.current === controller) abortRef.current = null;
+        submittingRef.current = false;
+        if (resumeAbortRef.current === controller) resumeAbortRef.current = null;
       }
     },
-    [caseId]
+    [caseId, handleMalformed]
   );
 
   // Per-case lifecycle: rehydrate first; if MemorySaver has state, paint it
@@ -325,55 +266,35 @@ export function useStreamingRun(
     clearCountdown();
 
     (async () => {
-      try {
-        const res = await fetch(`/api/run/${caseId}`);
-        if (cancelled) return;
-        if (!res.ok) throw new Error(`Rehydrate failed: HTTP ${res.status}`);
-        const data = (await res.json()) as RehydrateResponse;
-        if (cancelled) return;
-        if (data.provider) setProvider(data.provider);
-
-        if (data.state && data.has_run) {
-          dispatch({ kind: 'hydrate', state: data.state });
-          seenCases.current.add(caseId);
-          if (data.interrupted) {
-            dispatch({ kind: 'set_phase', phase: 'paused' });
-          } else if (data.state.run_status === 'decided' || data.state.run_status === 'escalated') {
-            dispatch({ kind: 'set_phase', phase: 'finished' });
-          }
-          return;
-        }
-
-        // No prior state — first visit (or cold worker that lost the cache).
-        // Either way, arm the countdown so the operator gets the same UX.
-        if (!seenCases.current.has(caseId)) {
-          seenCases.current.add(caseId);
-          armCountdown();
-        } else {
-          // Returning to a case whose state was lost — re-arm rather than
-          // showing an empty canvas (per plan's MemorySaver fallback).
-          armCountdown();
-        }
-      } catch (err) {
-        if (cancelled) return;
-        const message = err instanceof Error ? err.message : 'Rehydrate failed';
-        dispatch({ kind: 'error', message });
+      const hadState = await rehydrate();
+      if (cancelled) return;
+      if (!hadState && lastRehydrateRef.current?.caseId === caseId) {
+        // No prior state (or cache lost on a cold worker). Per plan's
+        // MemorySaver fallback: re-show countdown rather than empty canvas;
+        // operator can cancel or wait.
+        armCountdown();
       }
     })();
 
     return () => {
       cancelled = true;
       clearCountdown();
-      if (abortRef.current) {
-        abortRef.current.abort();
-        abortRef.current = null;
+      // Synchronously clear so a quick re-mount can start a new stream —
+      // the in-flight async finally clause is racy with a fresh openStream.
+      streamingCases.current.delete(caseId);
+      if (runAbortRef.current) {
+        runAbortRef.current.abort();
+        runAbortRef.current = null;
+      }
+      if (resumeAbortRef.current) {
+        resumeAbortRef.current.abort();
+        resumeAbortRef.current = null;
       }
     };
-  }, [caseId, armCountdown, clearCountdown, setProvider]);
+  }, [caseId, armCountdown, clearCountdown, rehydrate]);
 
   return {
-    ...state,
-    countdownSecondsRemaining: countdownRemaining,
+    state,
     provider,
     startNow,
     cancelCountdown,
@@ -381,4 +302,3 @@ export function useStreamingRun(
     retry,
   };
 }
-

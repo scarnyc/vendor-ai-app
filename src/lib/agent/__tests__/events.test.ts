@@ -15,14 +15,11 @@ import { AgUiEventSchema, type AgUiEvent } from '../events';
  */
 
 async function drain(caseId: string): Promise<AgUiEvent[]> {
+  // streamRun keys MemorySaver by caseId. Vitest runs files in worker
+  // isolation and tests within a file run sequentially, so two `drain` calls
+  // for the same caseId in this file will never race; a prior run leaves a
+  // checkpoint that the next call's replayState path picks up cleanly.
   const collected: AgUiEvent[] = [];
-  // Unique thread per test run — MemorySaver keys by configurable.thread_id;
-  // reusing a real case_id would pick up state from other tests in the file.
-  const isolatedCaseId = `${caseId}__events_${Date.now()}_${Math.random()}`;
-  // The unique key can't be a real case in CASES; we patch it inside the
-  // generator by handing a wrapper that translates back. Simpler path: just
-  // use the case_id; tests don't run concurrently against the same thread.
-  void isolatedCaseId;
   for await (const event of streamRun(caseId, { kind: 'run' })) {
     collected.push(event);
   }
@@ -72,11 +69,14 @@ describe('AG-UI event sequence (LLM_PROVIDER=mock)', () => {
       ).toBeDefined();
     }
 
-    // The expected deterministic-tool names all appear.
-    const endNames = new Set(
-      ends.flatMap((e) => (e.type === 'TOOL_CALL_END' ? [e.tool_call.tool_name] : []))
+    // All 7 deterministic tool names appear in TOOL_CALL_END events. Using
+    // superset comparison rather than per-name loop so one assertion failure
+    // names every missing tool at once (and tolerates extra tools landing
+    // later without rewriting the expected list).
+    const endNames = new Set<string>(
+      ends.flatMap((e) => (e.type === 'TOOL_CALL_END' ? [e.tool_call.tool_name as string] : []))
     );
-    for (const expected of [
+    const expectedTools = new Set<string>([
       'validate_required_documents',
       'lookup_budget',
       'check_existing_vendor',
@@ -84,8 +84,8 @@ describe('AG-UI event sequence (LLM_PROVIDER=mock)', () => {
       'classify_data_sensitivity',
       'determine_required_approvals',
       'validate_citations',
-    ]) {
-      expect(endNames, `${expected} should appear in tool_called records`).toContain(expected);
-    }
+    ]);
+    const missing = [...expectedTools].filter((t) => !endNames.has(t));
+    expect(missing, `missing TOOL_CALL_END for: ${missing.join(', ')}`).toEqual([]);
   });
 });
