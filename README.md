@@ -2,7 +2,7 @@
 
 > The agent never approves spend, never sends external messages, never accepts contract language, never makes the final security or privacy decision.
 
-That sentence is SPEC §9. It's the reason this prototype is interesting and
+That sentence is the reason this prototype is interesting and
 the reason the schema, the prompts, and every button in the UI were designed
 the way they were. A vendor-onboarding triage agent that ships *recommendations*
 to one named human (Priya, the procurement owner), then stops. The agent reads
